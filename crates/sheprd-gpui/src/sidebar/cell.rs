@@ -18,11 +18,13 @@ use super::{
 use crate::{
     config::{FontConfig, LayoutMode, Theme},
     icons::AgentIcon,
+    window::SheprdWindow,
 };
-use gpui::{App, ClickEvent, Div, ElementId, ParentElement, Styled, Window};
+use gpui::{App, ClickEvent, Context, Div, ElementId, ParentElement, Styled, Window};
 use sheprd_client::protocol::AgentStatus;
 use sheprd_session::Workspace;
 use std::borrow::Cow;
+use std::sync::Arc;
 
 /// Read-only inputs every row of one render shares.
 pub(super) struct RowContext<'a> {
@@ -83,6 +85,10 @@ pub(super) struct WorkspaceRow<'a> {
     pub(super) status: AgentStatus,
     /// Daemon token rows, painted in the layout's own frame. Empty keeps its native lines.
     pub(super) lines: Vec<Vec<super::tokens::ResolvedToken>>,
+    /// Prepared fork-only pane state; `pane_strip` controls its display.
+    pub(super) summary: Option<&'a super::summary::WorkspaceSummary>,
+    pub(super) pane_strip: bool,
+    pub(super) summary_text: Option<gpui::SharedString>,
 }
 
 impl<'a> WorkspaceRow<'a> {
@@ -123,6 +129,11 @@ pub(super) struct AgentRow<'a> {
     pub(super) status_text: Option<Cow<'a, str>>,
     /// Daemon token rows, painted in the layout's own frame. Empty keeps its native lines.
     pub(super) lines: Vec<Vec<super::tokens::ResolvedToken>>,
+    /// Bounded preview of the matching pane's last agent message.
+    pub(super) message: Option<&'a str>,
+    pub(super) message_truncated: bool,
+    pub(super) idle_recap: bool,
+    pub(super) recap_target: Option<Arc<(String, String)>>,
 }
 
 /// What a row shows.
@@ -137,6 +148,8 @@ pub(super) enum RowData<'a> {
 pub(super) struct RowState {
     /// The focused workspace or agent.
     pub(super) selected: bool,
+    /// A row related to the selected agent workspace, without claiming focus.
+    pub(super) linked: bool,
     /// Marked as if hovered while the pointer is elsewhere, such as the row a
     /// menu was opened for.
     pub(super) highlighted: bool,
@@ -189,6 +202,11 @@ impl<'a> Cell<'a> {
         self
     }
 
+    pub(super) fn linked(mut self, linked: bool) -> Self {
+        self.state.linked = linked;
+        self
+    }
+
     pub(super) fn highlighted(mut self, highlighted: bool) -> Self {
         self.state.highlighted = highlighted;
         self
@@ -203,20 +221,45 @@ impl<'a> Cell<'a> {
     /// style's bar is added here, on the row's leading edge, so every layout
     /// shows it in the same place without drawing it itself.
     pub(super) fn row(self) -> Div {
-        let (row, rail) = match self.data {
+        self.render(None)
+    }
+
+    pub(super) fn interactive_row(self, cx: &mut Context<SheprdWindow>) -> Div {
+        self.render(Some(cx))
+    }
+
+    fn render(self, mut window_cx: Option<&mut Context<SheprdWindow>>) -> Div {
+        let (row, rail, extra) = match self.data {
             RowData::Workspace(row) => {
                 let rail = (!row.removing)
                     .then(|| self.cx.indicators.rail(row.status, row.label))
                     .flatten();
-                (self.layout.workspace(row, self.state, self.cx), rail)
+                let extra = super::row::agent_sidebar::workspace(&row, self.layout, self.cx);
+                (self.layout.workspace(row, self.state, self.cx), rail, extra)
             }
             RowData::Agent(row) => {
                 let rail = self.cx.indicators.rail(row.status, &row.key);
-                (self.layout.agent(row, self.state, self.cx), rail)
+                let extra = super::row::agent_sidebar::agent_message(
+                    &row,
+                    self.cx,
+                    window_cx.as_deref_mut(),
+                );
+                (self.layout.agent(row, self.state, self.cx), rail, extra)
             }
         };
-        match rail {
+        let row = match rail {
             Some(rail) => row.relative().child(rail),
+            None => row,
+        };
+        match extra {
+            Some(extra) => gpui::div()
+                .flex()
+                .flex_col()
+                .w_full()
+                .min_w_0()
+                .flex_none()
+                .child(row)
+                .child(extra),
             None => row,
         }
     }

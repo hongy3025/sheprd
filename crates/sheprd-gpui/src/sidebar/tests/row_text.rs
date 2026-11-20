@@ -180,6 +180,9 @@ fn cells_hand_their_state_and_data_to_the_layout() {
             removing: false,
             status: snapshot.workspaces[0].status,
             lines: vec![],
+            summary: None,
+            pane_strip: false,
+            summary_text: None,
         })
     };
     let _ = Cell::new(&recorder, workspace(), &cx).row();
@@ -195,6 +198,10 @@ fn cells_hand_their_state_and_data_to_the_layout() {
             pane: None,
             status_text: None,
             lines: vec![],
+            message: None,
+            message_truncated: false,
+            idle_recap: false,
+            recap_target: None,
         }),
         &cx,
     )

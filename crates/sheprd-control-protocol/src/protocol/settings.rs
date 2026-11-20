@@ -62,6 +62,14 @@ pub enum SettingsOp {
     /// The locale the windows show, and what chose it. Changing the
     /// `language` setting is a file edit the command line makes itself.
     Language,
+    /// Report or change the shared Herdr workspace pane-strip and status-text
+    /// rows used by the native agent sidebar.
+    AgentSidebar {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pane_strip: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_text: Option<bool>,
+    },
 }
 
 impl SettingsOp {
@@ -69,6 +77,11 @@ impl SettingsOp {
         match self {
             Self::Fonts | Self::Integrations | Self::CheckUpdate => LIST_WAIT_SECONDS,
             Self::Theme { .. } | Self::Font { .. } => SAVE_WAIT_SECONDS,
+            Self::AgentSidebar {
+                pane_strip,
+                status_text,
+            } if pane_strip.is_some() || status_text.is_some() => SAVE_WAIT_SECONDS,
+            Self::AgentSidebar { .. } => LIST_WAIT_SECONDS,
             _ => 0,
         }
     }
@@ -167,6 +180,10 @@ pub enum Reply {
         integrations: Vec<IntegrationInfo>,
     },
     Language(LanguageInfo),
+    AgentSidebar {
+        pane_strip: bool,
+        status_text: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -318,6 +318,7 @@ pub(crate) fn status(error: &crate::Error) -> u8 {
         crate::Error::Control(crate::control::Error::Unavailable { .. }) => exit::NOT_RUNNING,
         crate::Error::Control(crate::control::Error::Rejected { code, .. }) => match code {
             ErrorCode::InvalidUrl => exit::USAGE,
+            ErrorCode::NoResult => exit::NOTHING,
             ErrorCode::NotFound | ErrorCode::WorkspaceNotFound | ErrorCode::NoWindow => {
                 exit::NOT_FOUND
             }
@@ -339,6 +340,7 @@ fn code(error: &crate::Error) -> &'static str {
         exit::BUSY => "busy",
         exit::TIMEOUT => "timeout",
         exit::UNSUPPORTED => "unsupported",
+        exit::NOTHING => "no_result",
         _ => "refused",
     }
 }

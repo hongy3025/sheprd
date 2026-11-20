@@ -18,6 +18,7 @@ use sheprd_client::protocol::AgentStatus;
 use std::sync::Arc;
 use unicode_width::UnicodeWidthStr;
 
+pub(super) mod agent_sidebar;
 mod badge;
 mod configured;
 

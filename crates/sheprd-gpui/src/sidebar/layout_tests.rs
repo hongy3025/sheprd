@@ -27,6 +27,8 @@ mod agent_row_rescroll;
 #[cfg(test)]
 mod agent_rows;
 #[cfg(test)]
+mod agent_sidebar;
+#[cfg(test)]
 mod agents_header;
 #[cfg(all(test, feature = "coder"))]
 mod coder_dialog;
@@ -810,6 +812,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<SheprdWindow>
         sidebar_preferences: None,
         sidebar_modified: false,
         agent_group: None,
+        agent_recap: None,
         agent_sort: Default::default(),
         agent_sort_modified: false,
         avatars: None,
@@ -821,6 +824,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<SheprdWindow>
         sidebar_nested_reveal: Default::default(),
         sidebar_folded: Default::default(),
         sidebar_search: crate::sidebar::SidebarSearch::new(cx),
+        sidebar_selection: Default::default(),
         sidebar_slide: Default::default(),
         _poll: Task::ready(()),
         _activation: cx.observe_window_activation(window, |_, _, _| {}),

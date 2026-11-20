@@ -31,7 +31,8 @@ pub enum Placement {
 /// 4: `link`. 5: the `tab` family's `zoom`. 6: the `cloud` family. 7: `chat`.
 /// 8: `host` `automation_approve`. 9: `remote`. 10: `settings` `language`.
 /// 11: `mod`. 12: `window` `alerts`. 13: `chat` `shortcuts`.
-pub const PROTOCOL_VERSION: u32 = 13;
+/// 14: Agent Sidebar summaries, recaps, and settings.
+pub const PROTOCOL_VERSION: u32 = 14;
 
 /// Older apps and clients know only tabs, so a tab is left off the wire.
 fn is_tab(placement: &Placement) -> bool {
@@ -219,6 +220,8 @@ pub enum ErrorCode {
     Busy,
     Timeout,
     Unsupported,
+    /// A valid query found no cached result to report.
+    NoResult,
     /// The window, tab, host, checkpoint, or other thing named is not there.
     NotFound,
     /// The app tried and the operation failed, for example a Git error.

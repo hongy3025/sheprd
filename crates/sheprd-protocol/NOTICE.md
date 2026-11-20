@@ -32,6 +32,11 @@ applies the same structural limits before touching any baseline. The
 `surface-*-v1.bin` fixtures in `tests/fixtures/` were produced by Herdr's own
 encoders at that commit.
 
+The optional agent status-message control kind, capability and projection type
+in `src/endpoint.rs` adapt `src/protocol/endpoint.rs` from Sheprd's Herdr fork,
+commit [`eb898665`](https://github.com/herdrdev/herdr/commit/eb898665),
+licensed under Apache-2.0.
+
 The client discovery rules also adapt `src/server/socket_paths.rs`,
 `src/session.rs`, and `src/config/io.rs` from the same source/license.
 The native client's build mode does not implicitly select Herdr's dev session.

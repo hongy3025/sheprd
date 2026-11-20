@@ -131,6 +131,7 @@ impl SheprdWindow {
         if self.menu.page.is_some() {
             root.extend([self.render_menu(window, cx).into_any_element()]);
         }
+        root.extend(self.render_agent_recap(window, cx));
     }
 }
 

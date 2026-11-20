@@ -2,6 +2,7 @@
 use super::*;
 use crate::protocol::{Call, Caller, Request};
 
+mod agent_sidebar;
 mod traces;
 
 #[test]

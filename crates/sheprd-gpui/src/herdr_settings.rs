@@ -258,6 +258,10 @@ pub(crate) enum Edit {
         token: String,
         shown: bool,
     },
+    SidebarFlag {
+        flag: crate::config::SpaceFlag,
+        shown: bool,
+    },
 }
 
 /// Debug is derived: the original document's text, which may hold private
@@ -496,6 +500,30 @@ impl Settings {
         })
     }
 
+    /// The sidebar switches as saved in Herdr's shared config. Read only on
+    /// the worker that loaded or saved this settings snapshot.
+    pub(crate) fn sidebar_flags(&self) -> (bool, bool) {
+        let Some(table) = self
+            .original
+            .text
+            .as_deref()
+            .and_then(|text| text.parse::<toml::Table>().ok())
+        else {
+            return (true, true);
+        };
+        let spaces = table
+            .get("ui")
+            .and_then(|ui| ui.get("sidebar"))
+            .and_then(|sidebar| sidebar.get("spaces"));
+        let enabled = |name| {
+            spaces
+                .and_then(|spaces| spaces.get(name))
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(true)
+        };
+        (enabled("pane_strip"), enabled("status_text"))
+    }
+
     /// Background-only. Returns a fresh snapshot only after durable replacement.
     /// Never merges stale edits: even unrelated external changes require reload.
     pub(crate) fn save(&self, edit: Edit) -> crate::Result<Self> {
@@ -506,7 +534,7 @@ impl Settings {
                 .as_deref()
                 .unwrap_or("")
                 .parse::<DocumentMut>()?;
-            let sidebar_edit = matches!(edit, Edit::SidebarToken { .. });
+            let sidebar_edit = matches!(edit, Edit::SidebarToken { .. } | Edit::SidebarFlag { .. });
             match edit {
                 Edit::Theme(name) => {
                     let name =
@@ -539,6 +567,9 @@ impl Settings {
                     token,
                     shown,
                 } => sidebar::edit(&mut document, scope, &token, shown)?,
+                Edit::SidebarFlag { flag, shown } => {
+                    sidebar::edit_flag(&mut document, flag, shown)?
+                }
                 Edit::PaneHistory(enabled) => set(
                     &mut document,
                     &["experimental", "pane_history"],

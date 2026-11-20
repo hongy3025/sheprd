@@ -223,6 +223,14 @@ impl SheprdWindow {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.agent_recap.is_some() {
+            cx.stop_propagation();
+            return;
+        }
+        #[cfg(feature = "integration-test")]
+        {
+            self.input_probe.scrolls += 1;
+        }
         self.shift_taps.cancel();
         if self.menu.page.is_some() {
             return;
@@ -287,7 +295,7 @@ impl SheprdWindow {
     /// Cmd-V (Ctrl-Shift-V off macOS) and Edit > Paste into the focused pane
     /// or popup.
     pub(crate) fn paste(&mut self, cx: &mut Context<Self>) {
-        if self.copy_mode_active() {
+        if self.agent_recap.is_some() || self.copy_mode_active() {
             return;
         }
         self.paste_or_hold(false, None, cx);
@@ -299,6 +307,19 @@ impl SheprdWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.agent_recap.is_some() {
+            let recap_focus = self.agent_recap.as_ref().map(|recap| recap.focus().clone());
+            cx.stop_propagation();
+            window.prevent_default();
+            if event.keystroke.key.eq_ignore_ascii_case("escape") {
+                self.close_agent_recap(window, cx);
+            } else if event.keystroke.key.eq_ignore_ascii_case("tab") {
+                if let Some(focus) = recap_focus {
+                    window.focus(&focus, cx);
+                }
+            }
+            return;
+        }
         // A remapped function key has its name from here on, so the pane key
         // looked up, the key sent, and the key held for its release agree.
         let named =

@@ -144,19 +144,69 @@ impl Default for AgentLayout {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct SpaceLayout {
+    pub pane_strip: bool,
+    pub row_gap: u16,
     #[serde(deserialize_with = "bounded_rows")]
     pub rows: Rows<SpaceToken>,
-    pub row_gap: u16,
+    pub status_text: bool,
 }
 
 impl Default for SpaceLayout {
     fn default() -> Self {
         Self {
+            pane_strip: true,
+            row_gap: 0,
             rows: vec![
                 plain([SpaceToken::StateIcon, SpaceToken::Workspace]),
                 plain([SpaceToken::Branch, SpaceToken::GitStatus]),
             ],
-            row_gap: 0,
+            status_text: true,
+        }
+    }
+}
+
+impl SpaceLayout {
+    /// Whether configured token rows or spacing differ from the native rows.
+    pub(crate) fn has_custom_rows(&self) -> bool {
+        self.row_gap != 0
+            || self.rows.len() != 2
+            || !plain_row(
+                &self.rows[0],
+                &[SpaceToken::StateIcon, SpaceToken::Workspace],
+            )
+            || !plain_row(&self.rows[1], &[SpaceToken::Branch, SpaceToken::GitStatus])
+    }
+}
+
+fn plain_row<T: PartialEq>(row: &[ConfiguredToken<T>], expected: &[T]) -> bool {
+    row.len() == expected.len()
+        && row.iter().zip(expected).all(|(token, expected)| {
+            token.token == *expected
+                && token.style == TokenStyle::default()
+                && token.rules.is_empty()
+        })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SpaceFlag {
+    PaneStrip,
+    StatusText,
+}
+
+impl SpaceFlag {
+    pub(crate) const ALL: [Self; 2] = [Self::PaneStrip, Self::StatusText];
+
+    pub(crate) const fn key(self) -> &'static str {
+        match self {
+            Self::PaneStrip => "pane_strip",
+            Self::StatusText => "status_text",
+        }
+    }
+
+    pub(crate) fn enabled(self, layout: &SpaceLayout) -> bool {
+        match self {
+            Self::PaneStrip => layout.pane_strip,
+            Self::StatusText => layout.status_text,
         }
     }
 }

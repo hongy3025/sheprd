@@ -326,6 +326,7 @@ impl SheprdWindow {
                     AgentSort::Grouped => "grouped",
                     AgentSort::Priority => "priority",
                 },
+                "agent_sidebar": crate::sidebar::agent_sidebar::state(self),
                 "layout": layout_state(self.config.layout.mode.name(), &self.hosted_metrics()),
                 "connected": self.live.status.is_connected(),
                 "panel": panel_id(self.activity_panel()),

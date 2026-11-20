@@ -1,4 +1,6 @@
 //! `status`, `app`, `window`, `ui`, and `run`.
+mod agent_sidebar;
+
 use super::{in_free_window, in_window, main_windows, window_for};
 use crate::window::main_window::MainWindow;
 use crate::{
@@ -288,7 +290,10 @@ pub(super) fn window(call: Call<WindowOp>, cx: &mut App) -> Response {
 }
 
 pub(super) fn ui(call: Call<UiOp>, cx: &mut App) -> Response {
-    in_window(&call.caller, cx, |view, window, cx| match call.op {
+    let caller = call.caller;
+    in_window(&caller, cx, |view, window, cx| match call.op {
+        UiOp::AgentSidebar => agent_sidebar::sidebar(view),
+        UiOp::AgentRecap { pane } => agent_sidebar::recap(view, &caller, pane, window, cx),
         UiOp::Traces {} => traces_reply(view),
         UiOp::TracesFilter { filter } => {
             use crate::control::protocol::app::TraceFilter;

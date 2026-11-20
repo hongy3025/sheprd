@@ -135,7 +135,7 @@ pub use sheprd_remote::config::SpritesConfig;
 pub(crate) use sheprd_remote::config::SpritesFields;
 pub(crate) use sidebar::{
     AgentLayout, AgentToken, MAX_ROWS as MAX_SIDEBAR_ROWS, Rows, SidebarConfigError, SidebarLayout,
-    SidebarScope, SpaceLayout, SpaceToken, TokenStyle,
+    SidebarScope, SpaceFlag, SpaceLayout, SpaceToken, TokenStyle,
 };
 pub(crate) use sidebar_style::{ChangeCounts, DeviceFooter};
 pub use sidebar_style::{SelectMode, SidebarOverrides, SidebarStyle};

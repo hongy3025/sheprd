@@ -1,5 +1,6 @@
 use super::agent_groups_text;
 
+mod agent_sidebar;
 mod traces;
 
 #[test]

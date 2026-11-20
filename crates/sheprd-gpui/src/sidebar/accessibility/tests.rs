@@ -1,5 +1,11 @@
 use super::*;
 
+fn without_bidi_isolates(text: String) -> String {
+    text.chars()
+        .filter(|character| !matches!(character, '\u{2068}' | '\u{2069}'))
+        .collect()
+}
+
 #[test]
 fn a_workspace_names_its_status_and_a_remote_device() {
     assert_eq!(
@@ -21,6 +27,22 @@ fn a_workspace_names_its_status_and_a_remote_device() {
 }
 
 #[test]
+fn a_workspace_names_its_tab_pane_and_agent_status_summary() {
+    assert_eq!(
+        without_bidi_isolates(workspace_details_name(
+            "herdr".to_owned(),
+            Some((2, 5)),
+            Some("working")
+        )),
+        "herdr, 2 tabs, 5 agent panes, status: working"
+    );
+    assert_eq!(
+        workspace_details_name("herdr".to_owned(), None, None),
+        "herdr"
+    );
+}
+
+#[test]
 fn an_agent_names_its_state_and_place() {
     assert_eq!(
         agent_name(
@@ -35,6 +57,23 @@ fn an_agent_names_its_state_and_place() {
     assert_eq!(
         agent_name("codex", None, "needs input", None, Some("devbox")),
         "codex, needs input, devbox"
+    );
+}
+
+#[test]
+fn an_agent_names_its_message_truncation_and_recap() {
+    assert_eq!(
+        without_bidi_isolates(agent_details_name(
+            "claude, working".to_owned(),
+            Some("needs input"),
+            true,
+            true
+        )),
+        "claude, working, latest message (truncated): needs input, recap available"
+    );
+    assert_eq!(
+        agent_details_name("codex, idle".to_owned(), None, false, false),
+        "codex, idle"
     );
 }
 

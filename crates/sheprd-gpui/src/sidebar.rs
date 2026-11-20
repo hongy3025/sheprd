@@ -4,6 +4,7 @@
 
 mod accessibility;
 mod activity;
+pub(crate) mod agent_sidebar;
 mod agents;
 mod animated;
 mod cell;
@@ -17,12 +18,15 @@ mod metrics;
 mod note_line;
 mod order;
 mod rail;
+pub(crate) mod recap;
 mod render;
 mod reorder;
 mod row;
 mod search;
+pub(crate) mod selection;
 pub(crate) mod slide;
 mod sticky;
+pub(crate) mod summary;
 mod tag_groups;
 mod tokens;
 mod update_pill;

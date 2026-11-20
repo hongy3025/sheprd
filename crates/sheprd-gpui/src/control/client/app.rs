@@ -5,6 +5,7 @@ use crate::{
     control::protocol::{
         Request, Response,
         app::{AlertInfo, AppOp, CommandOp, Reply, Status, UiOp, WindowInfo, WindowOp},
+        settings::{Reply as SettingsReply, SettingsOp},
     },
 };
 use std::fmt::Write as _;
@@ -149,6 +150,14 @@ pub(super) fn window(command: WindowCommand, context: &Context) -> crate::Result
 
 pub(super) fn ui(command: UiCommand, context: &Context) -> crate::Result<Output> {
     let op = match command {
+        UiCommand::AgentSidebar => UiOp::AgentSidebar,
+        UiCommand::AgentRecap { pane } => UiOp::AgentRecap { pane },
+        UiCommand::AgentSidebarConfig {
+            pane_strip,
+            status_text,
+        } => {
+            return sidebar_config(pane_strip, status_text, context);
+        }
         UiCommand::Traces => UiOp::Traces {},
         UiCommand::TracesFilter(filter) => UiOp::TracesFilter { filter },
         UiCommand::Sidebar(switch) => UiOp::Sidebar { switch },
@@ -160,6 +169,24 @@ pub(super) fn ui(command: UiCommand, context: &Context) -> crate::Result<Output>
         UiCommand::AgentGroup(name) => UiOp::AgentGroup { name },
     };
     match context.call(Request::Ui, op)? {
+        Response::App {
+            reply: Reply::AgentSidebar { state },
+        } => Output::data(agent_sidebar_text(&state), &state),
+        Response::App {
+            reply:
+                Reply::AgentRecap {
+                    endpoint,
+                    pane,
+                    message,
+                },
+        } => Output::data(
+            agent_recap_text(&endpoint, &pane, &message),
+            &serde_json::json!({
+                "endpoint": endpoint,
+                "pane": pane,
+                "message": message,
+            }),
+        ),
         Response::App {
             reply:
                 Reply::Traces {
@@ -190,6 +217,142 @@ pub(super) fn ui(command: UiCommand, context: &Context) -> crate::Result<Output>
         ),
         response => Err(unexpected(response)),
     }
+}
+
+fn sidebar_config(
+    pane_strip: Option<bool>,
+    status_text: Option<bool>,
+    context: &Context,
+) -> crate::Result<Output> {
+    match context.call(
+        Request::Settings,
+        SettingsOp::AgentSidebar {
+            pane_strip,
+            status_text,
+        },
+    )? {
+        Response::Settings {
+            reply:
+                SettingsReply::AgentSidebar {
+                    pane_strip,
+                    status_text,
+                },
+        } => Output::data(
+            format!(
+                "pane-strip={}\nstatus-text={}",
+                on_off(pane_strip),
+                on_off(status_text)
+            ),
+            &serde_json::json!({
+                "pane_strip": pane_strip,
+                "status_text": status_text,
+            }),
+        ),
+        response => Err(unexpected(response)),
+    }
+}
+
+fn agent_sidebar_text(state: &crate::control::protocol::app::AgentSidebarState) -> String {
+    use std::fmt::Write as _;
+
+    let mut text = String::new();
+    if let Some(selected) = &state.selected {
+        text.push_str("linked: ");
+        append_safe(&mut text, &selected.endpoint);
+        text.push('/');
+        append_safe(&mut text, &selected.workspace);
+        text.push('\n');
+    }
+    for host in &state.hosts {
+        let support = if host.supported {
+            "supported"
+        } else {
+            "unsupported"
+        };
+        append_safe(&mut text, &host.id);
+        let _ = writeln!(text, " ({support})");
+        for workspace in &host.workspaces {
+            text.push_str("  workspace ");
+            append_safe(&mut text, &workspace.id);
+            let _ = write!(text, ": {} tabs", workspace.tab_count);
+            if let Some(status) = workspace.winner {
+                let _ = write!(text, ", winner {}", agent_status_name(status));
+            }
+            if let Some(status) = workspace.other_tabs_attention {
+                let _ = write!(text, ", other tabs {}", agent_status_name(status));
+            }
+            if !workspace.pane_dots.is_empty() {
+                let _ = write!(text, ", panes ");
+                for (index, dot) in workspace.pane_dots.iter().enumerate() {
+                    if index != 0 {
+                        let _ = write!(text, ", ");
+                    }
+                    let status = dot.status.map_or("pane", agent_status_name);
+                    append_safe(&mut text, &dot.pane);
+                    let _ = write!(text, ":{status}{}", if dot.winner { "*" } else { "" });
+                }
+            }
+            let _ = writeln!(text);
+        }
+        for agent in &host.agents {
+            text.push_str("  pane ");
+            append_safe(&mut text, &agent.pane);
+            let _ = write!(text, " [{}]", agent_status_name(agent.status));
+            if agent.focused {
+                let _ = write!(text, " focused");
+            }
+            if agent.linked {
+                let _ = write!(text, " linked");
+            }
+            if agent.idle_recap {
+                let _ = write!(text, " recap");
+            }
+            if let Some(preview) = &agent.preview {
+                text.push_str(": ");
+                append_safe(&mut text, preview);
+            }
+            let _ = writeln!(text);
+        }
+    }
+    if text.is_empty() {
+        text.push_str("No hosts are shown in this window");
+    }
+    text.trim_end().to_owned()
+}
+
+fn agent_recap_text(endpoint: &str, pane: &str, message: &str) -> String {
+    let mut text = String::new();
+    append_safe(&mut text, endpoint);
+    text.push('/');
+    append_safe(&mut text, pane);
+    text.push('\n');
+    append_safe(&mut text, message);
+    text
+}
+
+fn append_safe(output: &mut String, value: &str) {
+    output.extend(value.chars().map(|character| {
+        if character.is_control() {
+            ' '
+        } else {
+            character
+        }
+    }));
+}
+
+fn agent_status_name(status: sheprd_client::protocol::AgentStatus) -> &'static str {
+    use sheprd_client::protocol::AgentStatus;
+    match status {
+        AgentStatus::Blocked => "blocked",
+        AgentStatus::Done => "done",
+        AgentStatus::Idle => "idle",
+        AgentStatus::Unknown => "unknown",
+        AgentStatus::Working => "working",
+    }
+}
+
+fn on_off(enabled: bool) -> &'static str {
+    if enabled { "on" } else { "off" }
 }
 
 fn traces_text(peers: &[sheprd_control_protocol::protocol::app::TracePeer]) -> String {

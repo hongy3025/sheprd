@@ -1,6 +1,6 @@
 ---
 name: herdr-gpui-browser
-description: "Open a browser tab in Sheprd beside your terminal to show the user a web page, HTML file, or mockup, and get back their notes and picks. Use it in Herdr (HERDR_ENV=1 or HC_TERMINAL_ID set) when the user asks to open, start, or show a browser tab, page, preview, or mockup, to explain or visualize how something works, or to mock up UI variants to pick from; prefer it there over other browser skills or a system browser. Also use it for what Sheprd, not the herdr daemon, shows or keeps: a file at a line, a review of your changes, repository memory shared by worktrees and tabs (search it before a task, add what you learn), worktree notes, checkpoints and their diffs, your branch's pull request and CI, vulnerability reports and Dependabot alerts, asking the user to approve an automation script you wrote, forwarding or stopping ports, cloud machines, remote control from a phone, its windows and tabs, waiting for a tab to close or the user's notes, Sheprd settings, themes, and fonts, and keeping the machine awake."
+description: "Use when, inside a Herdr pane (HERDR_ENV=1 or HC_TERMINAL_ID), a user asks to show a web page, HTML file, preview, or mockup in Sheprd; when a visual explanation or UI variants would help; or when an agent needs Sheprd-only state/actions such as memory, worktrees/checkpoints, PR/CI, security, automation approval, ports, cloud machines, phone remote control, windows/tabs, settings, Agent Sidebar summaries, or idle recaps."
 ---
 <!-- herdr-gpui-managed-skill v1: Sheprd keeps this file up to date. Edit a copy under another name to keep your changes. -->
 
@@ -355,6 +355,9 @@ what Sheprd shows or keeps.
 | Ask the user to approve an automation script you wrote (the app shows its plan; the user approves) | `sheprd automation approve .herdr/automations/nightly.luau` |
 | Show the Automations section: every host's scripts and runs | `sheprd ui panel automations` |
 | Show the user one coordinator's sessions in the agents panel, or list the groups | `sheprd ui agent-group demo`, `sheprd ui agent-group` |
+| Read Agent Sidebar workspace/agent summaries and bounded status previews | `sheprd ui agent-sidebar` |
+| Open an idle agent's full cached recap without sending terminal input | `sheprd ui agent-recap --pane ID` |
+| Read or change the daemon's pane-strip and status-text switches | `sheprd ui agent-sidebar-config`, `sheprd ui agent-sidebar-config --pane-strip off` |
 | Open a dev server in a tab, forwarded when you run on an SSH host | `sheprd ports open 3000` |
 | See every port this computer listens on, with the process, directory, and workspace behind it | `sheprd ports all --json` |
 | Ask the user to stop (or pause) whatever holds a port you need | `sheprd ports stop 3000`; they confirm in the app |
