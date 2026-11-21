@@ -893,7 +893,16 @@ size = 12
 # --- usage providers: generated from each provider's settings ---
 #
 # Found from the agent's own sign-in on the host, with nothing to set:
-#   codex, claude, kiro, doubao, pi
+#   claude, kiro, doubao, pi
+#
+# Codex (codex)
+# [usage.providers.codex]
+#   Optional local-only proxy URL for Codex usage requests on this machine
+#   (`http://` or `https://`, with optional percent-encoded `user:password@`).
+#   Leave unset to keep `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` from the
+#   environment; inherited `NO_PROXY` rules still apply. Not used on SSH or WSL
+#   hosts.
+# proxy = ""
 #
 # OpenAI (openai)
 # [usage.providers.openai]
@@ -1066,6 +1075,12 @@ size = 12
 #   agy runs only when this is set or antigravity is in show_providers, as a
 #   signed-out agy opens a browser to sign in.
 # cli_path = ""  # or ANTIGRAVITY_CLI_PATH
+#   Optional local-only proxy URL for `agy` usage commands on this machine
+#   (`http://` or `https://`, with optional percent-encoded `user:password@`).
+#   Leave unset to keep `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` from the
+#   environment; inherited `NO_PROXY` rules remain untouched. Not propagated to
+#   SSH or WSL hosts.
+# proxy = ""
 #
 # Copilot (copilot)
 # [usage.providers.copilot]

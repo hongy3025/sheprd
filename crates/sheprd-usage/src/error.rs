@@ -18,6 +18,8 @@ pub enum Error {
     Connect,
     #[error("Saved sign-in cannot be sent as a header.")]
     Header(#[source] ureq::http::header::InvalidHeaderValue),
+    #[error("Configured usage proxy URL is invalid.")]
+    InvalidProxy,
     /// The body may hold account details, so only the parser's category is kept.
     #[error("Usage response was not the expected JSON.")]
     Json(serde_json::error::Category),

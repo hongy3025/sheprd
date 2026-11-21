@@ -43,11 +43,14 @@ static META: Meta = Meta::new("antigravity", "Antigravity")
     .status_page(
         "https://www.google.com/appsstatus/dashboard/products/npdyhgECDJ6tB66MxXyo/history",
     )
-    .settings(&[Setting::new(
-        "cli_path",
-        &["ANTIGRAVITY_CLI_PATH"],
-        "usage-antigravity-setting-cli-path",
-    )]);
+    .settings(&[
+        Setting::new(
+            "cli_path",
+            &["ANTIGRAVITY_CLI_PATH"],
+            "usage-antigravity-setting-cli-path",
+        ),
+        Setting::proxy("usage-antigravity-setting-proxy"),
+    ]);
 
 impl Service for Antigravity {
     fn meta(&self) -> &'static Meta {
@@ -67,10 +70,11 @@ impl Service for Antigravity {
             return None;
         }
         let program = configured.unwrap_or_else(|| "agy".into());
-        let version = probe
-            .command(&program, &["--version"], Duration::from_secs(5))
-            .ok()
-            .filter(|output| output.success)?;
+        let version = match probe.command(&program, &["--version"], Duration::from_secs(5)) {
+            Ok(output) if output.success => output,
+            Err(Error::InvalidProxy) => return Some(Err(Error::InvalidProxy)),
+            Ok(_) | Err(_) => return None,
+        };
         if parse_version(&version.stdout).is_none_or(|version| version < MINIMUM) {
             return Some(Err(Error::Command(
                 "agy 1.1.11 or later is needed for usage reports",

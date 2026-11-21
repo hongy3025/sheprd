@@ -14,6 +14,7 @@ error-usage-command = { $kind ->
 }
 error-usage-connect = Could not reach the usage service from this host.
 error-usage-header = Saved sign-in cannot be sent as a header.
+error-usage-invalid-proxy = Configured usage proxy URL is invalid.
 error-usage-json = Usage response was not the expected JSON.
 error-usage-keychain-access = Reading this sign-in needs Keychain access, which macOS asks for.
 error-usage-keychain-denied = Keychain access was denied, so this sign-in cannot be read.

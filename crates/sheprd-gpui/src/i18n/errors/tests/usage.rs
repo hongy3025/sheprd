@@ -7,6 +7,7 @@ fn every_variant_has_a_message() {
     let mut errors = vec![
         Error::Connect,
         Error::Header(ureq::http::HeaderValue::from_str("\n").unwrap_err()),
+        Error::InvalidProxy,
         Error::Json(serde_json::error::Category::Syntax),
         Error::KeychainAccess,
         Error::KeychainDenied,

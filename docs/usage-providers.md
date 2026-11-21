@@ -129,6 +129,35 @@ api_key = "sk-or-…"
 - Unknown provider ids and setting names in the config are ignored and named
   in the GUI config warning, so every name a provider reads must be declared.
 
+### Local proxy for Codex and Antigravity
+
+Codex and Antigravity accept an optional local-only `proxy` setting in
+`config-gpui.local.toml`:
+
+```toml
+[usage.providers.codex]
+proxy = "http://127.0.0.1:7890"
+
+[usage.providers.antigravity]
+proxy = "http://127.0.0.1:7890"
+```
+
+- **Accepted URL format:** `http://` or `https://` with a host, optional port
+  (defaulting to `80` or `443`), and optional percent-encoded `user:password@`.
+  Other schemes (such as `socks5://`) and URLs with a non-root path, query, or
+  fragment fail with `Error::InvalidProxy` rather than falling back to a direct
+  connection. Proxy values are stored as secrets and never logged, included in
+  errors, or passed in command-line arguments.
+- **Fallback and bypass:** When `proxy` is unset or empty, local requests and
+  commands keep the process's existing `HTTP_PROXY`, `HTTPS_PROXY`, and
+  `NO_PROXY` environment behavior. When configured, it applies only to that
+  provider's local HTTP requests (`codex`) or local `agy` child environment
+  (`antigravity`) without mutating process-global variables, while preserving
+  inherited `NO_PROXY` / `no_proxy` bypass rules.
+- **Remote hosts:** Local `proxy` settings never cross to SSH hosts or WSL
+  distributions; remote probes continue using the remote host's own
+  environment.
+
 ## Probe
 
 `Probe` is the only way a provider touches the host, the config, or the

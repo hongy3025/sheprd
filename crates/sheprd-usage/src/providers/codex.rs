@@ -7,7 +7,7 @@ use crate::{
     {
         model::{Account, Kind, Provider, Report, SESSION, Section, WEEK, Window, title_case},
         probe::{HostPath, Probe, Request, Secret},
-        service::{Meta, Service, Timestamp, json},
+        service::{Meta, Service, Setting, Timestamp, json},
     },
 };
 use serde::Deserialize;
@@ -21,7 +21,8 @@ pub(crate) struct Codex;
 static META: Meta = Meta::new("codex", "Codex")
     .icon("icons/agent-codex.svg")
     .dashboard("https://chatgpt.com/codex/settings/usage")
-    .status_page("https://status.openai.com");
+    .status_page("https://status.openai.com")
+    .settings(&[Setting::proxy("usage-codex-setting-proxy")]);
 
 impl Service for Codex {
     fn meta(&self) -> &'static Meta {
