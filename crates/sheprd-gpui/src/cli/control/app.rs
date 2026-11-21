@@ -1,6 +1,6 @@
 //! `app`, `window`, and `ui`.
 use super::{Args, CliError, FontSize, Size, Switch, switch, unknown};
-use sheprd_control_protocol::protocol::app::TraceFilter;
+use sheprd_control_protocol::protocol::app::{MAX_AGENT_SIDEBAR_PANE_ID_BYTES, TraceFilter};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppCommand {
@@ -28,6 +28,14 @@ pub enum WindowCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiCommand {
+    AgentSidebar,
+    AgentRecap {
+        pane: String,
+    },
+    AgentSidebarConfig {
+        pane_strip: Option<bool>,
+        status_text: Option<bool>,
+    },
     Traces,
     TracesFilter(TraceFilter),
     Sidebar(Switch),
@@ -96,9 +104,23 @@ const PANELS: &str =
 pub(super) fn ui(args: &mut Args) -> Result<UiCommand, CliError> {
     let verb = args.verb().ok_or(CliError::MissingArgument {
         command: "ui",
-        what: "sidebar|statusbar|menubar|font-size|panel|agent-group|traces",
+        what: "sidebar|statusbar|menubar|font-size|panel|agent-group|traces|agent-sidebar|agent-recap|agent-sidebar-config",
     })?;
     Ok(match verb.to_str() {
+        Some("agent-sidebar") => UiCommand::AgentSidebar,
+        Some("agent-recap") => {
+            let pane = args
+                .text_option("--pane")?
+                .ok_or(CliError::MissingValue("--pane"))?;
+            if pane.is_empty() || pane.len() > MAX_AGENT_SIDEBAR_PANE_ID_BYTES {
+                return Err(CliError::InvalidValue("PANE"));
+            }
+            UiCommand::AgentRecap { pane }
+        }
+        Some("agent-sidebar-config") => UiCommand::AgentSidebarConfig {
+            pane_strip: optional_on_off(args.text_option("--pane-strip")?)?,
+            status_text: optional_on_off(args.text_option("--status-text")?)?,
+        },
         Some("traces") => {
             let host = args.text_option("--host")?;
             let tag = args.text_option("--tag")?;
@@ -153,4 +175,14 @@ pub(super) fn ui(args: &mut Args) -> Result<UiCommand, CliError> {
         }
         _ => return Err(unknown("ui", verb)),
     })
+}
+
+fn optional_on_off(value: Option<String>) -> Result<Option<bool>, CliError> {
+    value
+        .map(|value| match value.as_str() {
+            "on" => Ok(true),
+            "off" => Ok(false),
+            _ => Err(CliError::InvalidValue("on|off")),
+        })
+        .transpose()
 }

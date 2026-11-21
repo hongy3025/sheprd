@@ -1,6 +1,6 @@
 //! Shows or hides one token in the shared `[ui.sidebar.<scope>].rows`.
 use super::Error;
-use crate::config::{MAX_SIDEBAR_ROWS, SidebarConfigError, SidebarScope};
+use crate::config::{MAX_SIDEBAR_ROWS, SidebarConfigError, SidebarScope, SpaceFlag};
 use toml_edit::{Array, DocumentMut, Item, Value};
 
 /// Showing appends `token` as a row of its own, after writing out upstream's
@@ -79,6 +79,18 @@ pub(super) fn edit(
         }
     }
     Ok(())
+}
+
+pub(super) fn edit_flag(
+    document: &mut DocumentMut,
+    flag: SpaceFlag,
+    shown: bool,
+) -> Result<(), Error> {
+    super::set(
+        document,
+        &["ui", "sidebar", "spaces", flag.key()],
+        shown.into(),
+    )
 }
 
 fn keep_comment(rows: &mut Array, index: usize, comment: &str) {

@@ -89,6 +89,7 @@ fn fixture_size(width: f32, height: f32) -> Size<Pixels> {
 pub struct InputProbe {
     pub actions: u64,
     pub keys: u64,
+    pub scrolls: u64,
     pub text: u64,
     /// Compositions the platform's input method was told to drop.
     pub compositions_discarded: u64,

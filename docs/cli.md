@@ -85,7 +85,7 @@ Every command accepts:
 | 1 | Refused or failed |
 | 2 | Invalid arguments, or an address or file that cannot be shown |
 | 3 | Sheprd is not running |
-| 4 | Nothing yet: no notes, no event, no pull request, condition not met |
+| 4 | Nothing yet: no notes, no event, no pull request, no idle recap, condition not met |
 | 5 | The window, workspace, tab, host, or file is not there |
 | 6 | A dialog is open in the window, or the app is busy |
 | 7 | The app did not answer in time |
@@ -110,6 +110,9 @@ Every command accepts:
 | `ui font-size +\|-\|reset\|POINTS` | The terminal font size for this session |
 | `ui traces [--host ID\|--tag TAG\|--all]` | Without options, read prepared replication status, the current `filter`, and indexed `hosts` with stable IDs and device tags. `peers` report `waiting`, `syncing`, `ready`, or `failed` (with `error`). With a filter, open Traces for that host or existing device label, or clear the source filter. Unknown hosts/tags exit 5; usual `--json` and `--window` targeting applies. Cached hosts remain filterable offline. |
 | `ui agent-group [NAME\|all]` | List the agents panel's coordinator groups, marking the one shown, or show one group's sessions with its coordinator first, or `all` of them, for this window and session. Exits 5 for a group no coordinator names and 8 unless `[sidebar] coordinator_suffix` is set and the agents panel is shown |
+| `ui agent-sidebar` | Read the linked workspace and per-host workspace/agent summaries, with bounded status-message previews. Hosts that do not advertise the optional agent-status capability are marked unsupported and get no synthetic summaries. Uses the selected host by default; a caller's own daemon/workspace must resolve to that host. No supported host exits 8. |
+| `ui agent-recap --pane ID` | Open and return the full cached idle recap for the named pane, bounded to 8,192 characters. The recap is captured from the caller's resolved host and does not navigate or send terminal input. Missing recap exits 4, an unknown pane exits 5, a modal conflict exits 6, and an unsupported host exits 8. |
+| `ui agent-sidebar-config [--pane-strip on\|off] [--status-text on\|off]` | With no options, read the two `[ui.sidebar.spaces]` flags; with either option, save the supplied values to Herdr's shared config. This does not edit Sheprd's local config or reset custom sidebar rows. Saving is unavailable on Windows and exits 8. Accepts the usual `--json` and `--window`. |
 | `ui panel workspaces\|overview\|pull-requests\|issues\|tasks\|security\|automations\|ports\|usage\|traces` | Show an activity bar section: Workspaces with the sidebar expanded, Overview of what needs you on every host, the focused workspace's pull requests or issues across the window, Beads tasks across the window's projects, the vulnerability reports and Dependabot alerts of your repositories, every host's automation scripts and runs, every port this computer's user listens on, every host's plan usage, or local and replicated agent session history and connected-host sync status in [Traces](traces.md) |
 | `run COMMAND` | Any app command by its `[keybindings]` name, as the palette runs it |
 | `commands` | The names `run` accepts (no app needed) |

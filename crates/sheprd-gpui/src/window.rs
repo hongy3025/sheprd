@@ -132,6 +132,8 @@ pub(crate) struct SheprdWindow {
     /// The coordinator group the agents panel is narrowed to, by name: a
     /// group outlives its coordinator's pane. None lists every group.
     pub(crate) agent_group: Option<String>,
+    /// The captured full status message shown above the window.
+    pub(crate) agent_recap: Option<sidebar::recap::Recap>,
     pub(crate) agent_sort: preferences::AgentSort,
     /// Whether the user chose the sort with the panel toggle, now or in a
     /// stored session. Until then the daemon's `ui.agent_panel_sort` decides,
@@ -401,6 +403,9 @@ pub(crate) struct SheprdWindow {
     /// Spaces and agents lists, in that order.
     pub(crate) sidebar_scroll: [ScrollHandle; 2],
     pub(crate) sidebar_search: sidebar::SidebarSearch,
+    /// The workspace whose related rows are highlighted, independent of
+    /// which pane actually has keyboard focus.
+    pub(crate) sidebar_selection: sidebar::selection::Selection,
     pub(crate) sidebar_slide: sidebar::slide::SidebarSlide,
     pub(crate) sidebar_split: Option<f32>,
     pub(crate) sidebar_split_modified: bool,

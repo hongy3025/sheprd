@@ -2,6 +2,7 @@
 use super::*;
 use crate::control::protocol::app::Switch;
 
+mod agent_sidebar;
 mod traces;
 
 fn call<T>(op: T) -> Call<T> {

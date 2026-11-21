@@ -194,6 +194,7 @@ impl LiveState {
             .as_deref()
             .filter(|old| old.boot_id == snapshot.boot_id);
         self.agent_recency.observe(previous, &snapshot);
+        self.agent_sidebar.commit_snapshot(snapshot.clone());
         self.snapshot = Some(snapshot);
     }
 }

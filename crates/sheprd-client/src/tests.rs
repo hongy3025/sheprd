@@ -26,6 +26,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod agent_status_messages;
 mod commands;
 mod error_kinds;
 mod errors;

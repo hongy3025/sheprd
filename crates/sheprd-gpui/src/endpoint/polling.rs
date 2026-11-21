@@ -202,6 +202,19 @@ impl SheprdWindow {
                 ));
             }
         }
+        self.sidebar_selection.retain(|target| {
+            self.endpoints.iter().any(|endpoint| {
+                endpoint.id == target.endpoint
+                    && endpoint.generation == target.generation
+                    && endpoint.live.snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot.boot_id == target.boot
+                            && snapshot
+                                .workspaces
+                                .iter()
+                                .any(|workspace| workspace.workspace_id == target.workspace)
+                    })
+            })
+        });
         crate::palette::LastSeen::trim(
             self.endpoints
                 .iter_mut()

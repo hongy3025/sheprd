@@ -4,7 +4,7 @@
 use super::*;
 use crate::direction::Logical;
 use crate::{
-    config::{SidebarScope, Theme, mix},
+    config::{SidebarScope, SpaceFlag, Theme, mix},
     fonts::StyledFont,
     herdr_settings::Edit,
     i18n::fl,
@@ -183,6 +183,36 @@ impl SettingsWindow {
                 cx,
             ));
         }
+        for flag in SpaceFlag::ALL {
+            let (selector, title_text, detail) = match flag {
+                SpaceFlag::PaneStrip => (
+                    "pane-strip",
+                    fl!("settings-plugins-pane-strip"),
+                    fl!("settings-plugins-pane-strip-detail"),
+                ),
+                SpaceFlag::StatusText => (
+                    "status-text",
+                    fl!("settings-plugins-status-text"),
+                    fl!("settings-plugins-status-text-detail"),
+                ),
+            };
+            if !query.is_empty()
+                && !title_text.to_lowercase().contains(query)
+                && !detail.to_lowercase().contains(query)
+            {
+                continue;
+            }
+            let title = div().font_weight(FontWeight::SEMIBOLD).child(title_text);
+            list = list.child(self.flag_switch(
+                flag,
+                selector,
+                title,
+                detail,
+                flag.enabled(&layout.spaces),
+                ready,
+                cx,
+            ));
+        }
         if matched == 0 {
             list = list.child(self.control_note(if values.is_empty() {
                 fl!("settings-plugins-none")
@@ -218,6 +248,57 @@ impl SettingsWindow {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let id = format!("plugin-value-{}-{token}", scope.key());
+        self.sidebar_switch(
+            id,
+            title,
+            detail,
+            shown,
+            ready,
+            Edit::SidebarToken {
+                scope,
+                token: token.to_owned(),
+                shown: !shown,
+            },
+            cx,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn flag_switch(
+        &self,
+        flag: SpaceFlag,
+        selector: &str,
+        title: Div,
+        detail: String,
+        shown: bool,
+        ready: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        self.sidebar_switch(
+            format!("plugin-sidebar-flag-{selector}"),
+            title,
+            detail,
+            shown,
+            ready,
+            Edit::SidebarFlag {
+                flag,
+                shown: !shown,
+            },
+            cx,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn sidebar_switch(
+        &self,
+        id: String,
+        title: Div,
+        detail: String,
+        shown: bool,
+        ready: bool,
+        edit: Edit,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let selector = id.clone();
         let row = div()
             .id(ElementId::Name(id.into()))
@@ -249,23 +330,17 @@ impl SettingsWindow {
         if !ready {
             return row;
         }
-        let token = token.to_owned();
         row.on_click(cx.listener(move |this, _, _, cx| {
-            let edit = Edit::SidebarToken {
-                scope,
-                token: token.clone(),
-                shown: !shown,
-            };
             // As in `save_shared`, a click during a load or save is dropped.
             if this.busy() {
                 return;
             }
             #[cfg(test)]
             if let Some(edits) = &mut this.plugins.edits {
-                edits.push(edit);
+                edits.push(edit.clone());
                 return;
             }
-            this.save_shared(edit, cx);
+            this.save_shared(edit.clone(), cx);
         }))
     }
 
@@ -297,7 +372,7 @@ impl SettingsWindow {
         }
         let layout = &self.config.sidebar_layout;
         if layout.agents == crate::config::AgentLayout::default()
-            && layout.spaces == crate::config::SpaceLayout::default()
+            && !layout.spaces.has_custom_rows()
         {
             return div()
                 .debug_selector(|| "plugin-rows-default".into())

@@ -13,6 +13,8 @@ use gpui::{TestAppContext, VisualTestContext, px, size};
 use sheprd_client::{ConnectTarget, protocol::ClientShellSnapshot};
 use std::sync::{Arc, Mutex};
 
+mod agent_sidebar;
+
 fn connected(live: &mut crate::state::LiveState, summary: &str, ci: Option<&str>) {
     let mut snapshot: ClientShellSnapshot = serde_json::from_str(include_str!(
         "../../../../../sheprd-protocol/tests/fixtures/endpoint-snapshot-v1.json"

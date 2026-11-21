@@ -8,10 +8,12 @@ use sheprd_client::{
 use std::sync::Arc;
 
 mod agent_recency;
+mod agent_sidebar;
 mod projection;
 
 use agent_recency::AgentRecency;
 pub(crate) use agent_recency::StatusRecency;
+use agent_sidebar::AgentSidebarState;
 
 pub(crate) type DialogResponse = Result<serde_json::Value, Arc<crate::Error>>;
 
@@ -84,6 +86,7 @@ pub struct LiveState {
     /// When each of `snapshot`'s agents last changed, on a clock shared with
     /// every other connection, so the agents panel can merge hosts by recency.
     pub(crate) agent_recency: AgentRecency,
+    pub(crate) agent_sidebar: AgentSidebarState,
     /// `snapshot` as a [`sheprd_session::Session`], built when first read.
     session: crate::session_model::SnapshotSession,
     /// The pane focused before the current one, in any workspace or tab of
@@ -218,6 +221,7 @@ impl Default for LiveState {
             snapshot: None,
             pending_snapshot: None,
             agent_recency: AgentRecency::default(),
+            agent_sidebar: AgentSidebarState::default(),
             session: Default::default(),
             previous_pane: None,
             surface: None,
@@ -351,6 +355,7 @@ impl LiveState {
             pending_snapshot: _,
             // Changes only with `snapshot`, which is compared below.
             agent_recency: _,
+            agent_sidebar: _,
             session: _,
             previous_pane,
             surface: _,
@@ -623,6 +628,7 @@ impl LiveState {
     pub fn apply(&mut self, event: ClientEvent) {
         match event {
             ClientEvent::Connected(welcome) => {
+                self.agent_sidebar.connected(&welcome);
                 self.settings_reload = false;
                 self.daemon_version = sanitize_daemon_version(&welcome.server_version);
                 self.supports_pane_clear = Method::PaneClear.advertised_in(&welcome.methods);
@@ -659,6 +665,10 @@ impl LiveState {
                 self.status = ConnectionStatus::AwaitingSnapshot;
                 self.error = None;
             }
+            ClientEvent::AgentStatusMessages(messages) => {
+                self.agent_sidebar.receive(messages);
+                return;
+            }
             ClientEvent::Snapshot(snapshot) => self.receive_snapshot(snapshot),
             ClientEvent::Surface(surface) => self.receive_surface(surface),
             ClientEvent::SurfaceImages(images) => self.receive_surface_images(images),
@@ -683,6 +693,7 @@ impl LiveState {
                 self.pending_snapshot = None;
                 self.pending_surface_images = None;
                 self.agent_recency = AgentRecency::default();
+                self.agent_sidebar.disconnect();
                 self.surface = None;
                 self.announcement_dismissal = None;
                 self.surface_images = Default::default();

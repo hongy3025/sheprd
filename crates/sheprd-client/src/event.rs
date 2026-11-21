@@ -4,7 +4,10 @@
 use crate::{
     Error, Result, VersionMismatch,
     limits::POLL,
-    protocol::{endpoint::EndpointServerWelcome, *},
+    protocol::{
+        endpoint::{EndpointAgentStatusMessages, EndpointServerWelcome},
+        *,
+    },
     surface_images::SurfaceImages,
 };
 use crossbeam_channel::{SendTimeoutError, Sender};
@@ -17,6 +20,8 @@ use std::sync::{
 #[derive(Debug)]
 pub enum ClientEvent {
     Connected(EndpointServerWelcome),
+    /// Complete Agent status messages for the next matching snapshot revision.
+    AgentStatusMessages(Arc<EndpointAgentStatusMessages>),
     Snapshot(Arc<ClientShellSnapshot>),
     /// Complete text baseline, including after a cell patch. Its graphics
     /// scene carries placements only; the pixels arrive as `SurfaceImages`.

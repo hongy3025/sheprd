@@ -5,6 +5,7 @@
 
 mod barrier;
 pub(crate) use barrier::Barrier;
+mod agent_status;
 
 use crate::{
     Error, Result, clipboard,
@@ -57,6 +58,13 @@ fn supports_surface_interest(welcome: &EndpointServerWelcome) -> bool {
         .iter()
         .all(|cap| welcome.capabilities.iter().any(|c| c == cap))
         && Method::ClientShellSurfaceSet.advertised_in(&welcome.methods)
+}
+
+fn supports_agent_status_messages(welcome: &EndpointServerWelcome) -> bool {
+    welcome
+        .capabilities
+        .iter()
+        .any(|capability| capability == AGENT_STATUS_MESSAGES_CAPABILITY)
 }
 
 /// Optional surface encodings this connection may receive. The hello requests
@@ -139,6 +147,7 @@ pub(crate) struct Session {
     pub(crate) snapshot: Option<Arc<ClientShellSnapshot>>,
     pub(crate) surface: Option<Arc<PaneSurfaceFrame>>,
     pub(crate) images: ImageStore,
+    agent_status: agent_status::Projection,
     pub(crate) pending: Option<Pending>,
     pub(crate) barrier: Option<Barrier>,
     pub(crate) pipeline_barriers: bool,
@@ -156,6 +165,7 @@ impl Session {
             snapshot: None,
             surface: None,
             images: ImageStore::default(),
+            agent_status: agent_status::Projection::default(),
             pending: None,
             barrier: None,
             pipeline_barriers: false,
@@ -622,6 +632,7 @@ impl Session {
             snapshot,
             surface,
             images,
+            agent_status,
             pending,
             barrier,
             pipeline_barriers,
@@ -690,6 +701,13 @@ impl Session {
                 {
                     return Err(Error::SnapshotIdentity);
                 }
+                if welcome
+                    .as_ref()
+                    .is_some_and(|welcome| supports_agent_status_messages(welcome))
+                    && let Some(messages) = agent_status.take_for(&next.boot_id, next.revision)
+                {
+                    emit(ClientEvent::AgentStatusMessages(Arc::new(messages)))?;
+                }
                 let next = Arc::new(next);
                 if snapshot.is_none() {
                     tracing::debug!("initial snapshot ready");
@@ -712,6 +730,14 @@ impl Session {
             }
             // Optional encodings expand into the same atomic surface and patch
             // paths, so revision fencing and validation stay in one place.
+            ServerMessage::EndpointControl { kind, data } if kind == AGENT_STATUS_MESSAGES_KIND => {
+                if welcome
+                    .as_ref()
+                    .is_some_and(|welcome| supports_agent_status_messages(welcome))
+                {
+                    agent_status.receive(&data);
+                }
+            }
             ServerMessage::EndpointControl { kind, data }
                 if kind == surface_scroll::MESSAGE_KIND =>
             {
