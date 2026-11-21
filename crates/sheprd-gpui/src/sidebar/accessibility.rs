@@ -69,6 +69,29 @@ pub(super) fn workspace_name(
     ])
 }
 
+pub(super) fn workspace_details_name(
+    mut name: String,
+    counts: Option<(usize, usize)>,
+    status: Option<&str>,
+) -> String {
+    if let Some((tabs, panes)) = counts {
+        name = fl!(
+            "sidebar-spoken-workspace-summary",
+            row = name,
+            tabs = tabs,
+            panes = panes
+        );
+    }
+    if let Some(status) = status {
+        name = fl!(
+            "sidebar-spoken-workspace-status",
+            row = name,
+            status = status
+        );
+    }
+    name
+}
+
 /// An agent row: the agent, the name of its pane (what tells two agents of
 /// one name apart), its state (the agent's own label for it, when it gave
 /// one), and where it runs.
@@ -88,6 +111,33 @@ pub(super) fn agent_name(
         tab.flatten(),
         host,
     ])
+}
+
+pub(super) fn agent_details_name(
+    mut name: String,
+    message: Option<&str>,
+    truncated: bool,
+    idle_recap: bool,
+) -> String {
+    if let Some(message) = message {
+        name = if truncated {
+            fl!(
+                "sidebar-spoken-agent-message-truncated",
+                row = name,
+                message = message
+            )
+        } else {
+            fl!(
+                "sidebar-spoken-agent-message",
+                row = name,
+                message = message
+            )
+        };
+    }
+    if idle_recap {
+        name = fl!("sidebar-spoken-agent-recap", row = name);
+    }
+    name
 }
 
 /// A device's header: its name, whether it is connected, and, in the Devices

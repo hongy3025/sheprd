@@ -2,6 +2,7 @@
 //! Modified: only client-facing gen1 handshake types/constants retained.
 use crate::ClientSurfaceSize;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub const ENDPOINT_PROTOCOL_GENERATION: u32 = 1;
 pub const ENDPOINT_HELLO_KIND: &str = "endpoint.hello.v1";
@@ -11,6 +12,16 @@ pub const ENDPOINT_SNAPSHOT_KIND: &str = SNAPSHOT_CODEC_V1;
 pub const SURFACE_CODEC_V1: &str = "shell.surface.v1";
 pub const INPUT_CODEC_V1: &str = "shell.input.semantic.v1";
 pub const BLOB_CODEC_V1: &str = "shell.blob.v1";
+pub const AGENT_STATUS_MESSAGES_CAPABILITY: &str = "agent_status_messages";
+pub const AGENT_STATUS_MESSAGES_KIND: &str = "endpoint.agent-status-messages.v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointAgentStatusMessages {
+    pub boot_id: String,
+    pub revision: u64,
+    pub messages: BTreeMap<String, String>,
+}
+
 fn default_true() -> bool {
     true
 }

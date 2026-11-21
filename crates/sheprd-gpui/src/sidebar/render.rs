@@ -31,6 +31,7 @@ mod fold_hosts;
 mod header;
 mod menu_overlay;
 mod nested_agents;
+mod workspace_rows;
 
 pub(super) use header::header;
 pub(crate) use nested_agents::NestedReveal;
@@ -53,8 +54,8 @@ impl SheprdWindow {
         let content_x = look.content_x();
         let view = cx.entity().downgrade();
         let font = &self.config.sidebar;
-        let spaces_custom = self.config.usage.inline
-            && self.config.sidebar_layout.spaces != crate::config::SpaceLayout::default();
+        let spaces_custom =
+            self.config.usage.inline && self.config.sidebar_layout.spaces.has_custom_rows();
         let theme = &self.theme;
         // The field is the heading, so it takes the heading's face.
         self.sidebar_search.input.update(cx, |input, cx| {
@@ -219,6 +220,7 @@ impl SheprdWindow {
                 continue;
             }
             let snapshot = live.snapshot.as_deref();
+            let prepared = live.agent_sidebar.prepared();
             let silenced = snapshot
                 .map(|snapshot| {
                     crate::notification_mutes::Mutes::silenced_in(cx, endpoint, snapshot)
@@ -337,6 +339,15 @@ impl SheprdWindow {
                     } else {
                         workspace.status
                     };
+                    let sidebar_summary = workspace_rows::extras(
+                        prepared,
+                        snapshot,
+                        &workspace.id,
+                        &self.config.sidebar_layout.spaces,
+                        &self.sidebar_selection,
+                        &endpoint.id,
+                        endpoint.generation,
+                    );
                     let muted = silenced.workspace(&workspace.id);
                     let lines = if spaces_custom {
                         tokens::space_rows(
@@ -440,6 +451,16 @@ impl SheprdWindow {
                                     cx,
                                 ))
                         });
+                    let accessible_name = workspace_rows::accessible_name(
+                        label,
+                        linked,
+                        shown_status,
+                        muted,
+                        row_cx.host,
+                        sidebar_summary.summary,
+                        self.config.sidebar_layout.spaces.pane_strip,
+                        sidebar_summary.status_text.as_deref(),
+                    );
                     let element = Cell::new(
                         rows,
                         RowData::Workspace(WorkspaceRow {
@@ -483,10 +504,14 @@ impl SheprdWindow {
                             removing: removing_row,
                             status: shown_status,
                             lines,
+                            summary: sidebar_summary.summary,
+                            pane_strip: self.config.sidebar_layout.spaces.pane_strip,
+                            summary_text: sidebar_summary.status_text,
                         }),
                         &row_cx,
                     )
                     .selected(focused)
+                    .linked(sidebar_summary.linked)
                     .highlighted(selected && menu_target == Some(id.as_str()))
                     .lift(match (carried, floating) {
                         (true, _) => RowLift::Lifted,
@@ -520,16 +545,10 @@ impl SheprdWindow {
                         },
                     )
                     .id(SharedString::from(format!("workspace-{endpoint_id}-{id}")))
-                    .map(|row| {
-                        let name = super::accessibility::workspace_name(
-                            label,
-                            linked,
-                            shown_status,
-                            muted,
-                            row_cx.host,
-                        );
-                        self.workspace_item(row, name, focused, folds, cx)
+                    .when(sidebar_summary.linked, |row| {
+                        row.debug_selector(|| format!("linked-workspace-{endpoint_id}-{id}"))
                     })
+                    .map(|row| self.workspace_item(row, accessible_name, focused, folds, cx))
                     .when(multi, |row| {
                         row.debug_selector(|| format!("workspace-{endpoint_id}-{id}"))
                     })
@@ -539,6 +558,9 @@ impl SheprdWindow {
                             NavigationTarget::Workspace(&id),
                             cx,
                         );
+                        if selected {
+                            this.select_sidebar_workspace(&navigate_endpoint, &id);
+                        }
                         window.focus(&this.focus, cx);
                         // The first click of a double-click has already selected
                         // the row, so the second only opens the rename dialog its

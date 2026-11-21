@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
+mod agent_sidebar;
+
 fn layout(text: &str) -> Result<SidebarLayout, toml::de::Error> {
     SidebarLayout::from_daemon_config(&text.parse().unwrap())
 }

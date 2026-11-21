@@ -102,3 +102,26 @@ sidebar-group-all = all groups
 sidebar-agents-group = Agent group: { $group }
 # A screen reader's name for a coordinator's row; $row is its usual name.
 sidebar-coordinator-row = Coordinator: { $row }
+
+# The fork-only workspace status row.
+sidebar-tab-count = { $count ->
+    [one] { $count } tab
+   *[other] { $count } tabs
+}
+sidebar-agent-recap-available = recap
+sidebar-agent-recap-open = Read recap for { $pane }
+sidebar-agent-recap-title = Recap for { $pane }
+sidebar-agent-recap-source-online = Captured from the current session
+sidebar-agent-recap-source-offline = Captured session is no longer connected
+sidebar-agent-recap-close = Close
+sidebar-spoken-workspace-summary = { $row }, { $tabs ->
+    [one] { $tabs } tab
+   *[other] { $tabs } tabs
+}, { $panes ->
+    [one] { $panes } agent pane
+   *[other] { $panes } agent panes
+}
+sidebar-spoken-workspace-status = { $row }, status: { $status }
+sidebar-spoken-agent-message = { $row }, latest message: { $message }
+sidebar-spoken-agent-message-truncated = { $row }, latest message (truncated): { $message }
+sidebar-spoken-agent-recap = { $row }, recap available

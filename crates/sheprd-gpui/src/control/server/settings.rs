@@ -2,6 +2,7 @@
 //! `sound play`, `bell`, `update`, `integrations`, and `language`. Files are written on
 //! the background executor; the config watcher then applies them as it
 //! applies any edit, so a request only waits for the write to finish.
+mod agent_sidebar;
 mod caffeine;
 mod keys;
 mod saves;
@@ -66,6 +67,10 @@ pub(super) fn serve(
         }
         SettingsOp::Integrations => services::integrations(&caller, wait, incoming, watches, cx),
         SettingsOp::Language => incoming.respond(language(cx)),
+        SettingsOp::AgentSidebar {
+            pane_strip,
+            status_text,
+        } => agent_sidebar::serve(pane_strip, status_text, wait, incoming, watches, cx),
     }
 }
 

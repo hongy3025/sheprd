@@ -8,7 +8,7 @@ acts in the window showing the caller's workspace (HERDR_WORKSPACE_ID), or,
 in a herdr-core terminal (HC_TERMINAL_ID), the tab holding it, and exits 5
 when no window shows it; outside both, in the frontmost window.
 Exit status: 0 done, 1 refused, 2 invalid arguments, 3 Sheprd not running,
-4 nothing yet (no notes, no event), 5 not found, 6 busy (a dialog is open),
+4 nothing yet (no notes, no event, no idle recap), 5 not found, 6 busy (a dialog is open),
 7 timed out, 8 unsupported on this platform or by this app version.";
 
 const BROWSER: &str = "\
@@ -64,7 +64,7 @@ fn family(name: &str) -> &'static str {
             "sheprd window [list]\n    The app's windows, with IDs for --window.\nsheprd window alerts\n    The alerts the window kept, newest first, including those held back\n    by quiet hours or with delivery off.\nsheprd window new [--session NAME]\n    Open another window: of the caller's own Herdr session, of a named\n    local session, or outside Herdr of the frontmost window's host.\nsheprd window focus ID\nsheprd window fullscreen [on|off|toggle]\nsheprd window size [WIDTHxHEIGHT]\n    Print the window's size, or resize it. Windows cannot be moved.\nsheprd window detach|reconnect\n    Detach from, or reconnect to, the window's selected host."
         }
         "ui" => {
-            "sheprd ui sidebar [on|off|toggle]\nsheprd ui statusbar [on|off|toggle]\nsheprd ui menubar [on|off|toggle]\nsheprd ui font-size +|-|reset|POINTS\nsheprd ui panel workspaces|overview|pull-requests|issues|tasks|security|automations|ports|usage|traces\nsheprd ui traces [--host ID|--tag TAG|--all]\n    Read prepared replication status, indexed host IDs, and the current filter.\n    With a filter, show Traces for that host or existing device label, or all hosts.\nsheprd ui agent-group [NAME|all]\n    List the agents panel's coordinator groups, or show one group's sessions\n    with its coordinator first. Needs [sidebar] coordinator_suffix.\n    For this window and session; settings are changed with `config`."
+            "sheprd ui sidebar [on|off|toggle]\nsheprd ui statusbar [on|off|toggle]\nsheprd ui menubar [on|off|toggle]\nsheprd ui font-size +|-|reset|POINTS\nsheprd ui panel workspaces|overview|pull-requests|issues|tasks|security|automations|ports|usage|traces\nsheprd ui traces [--host ID|--tag TAG|--all]\n    Read prepared replication status, indexed host IDs, and the current filter.\n    With a filter, show Traces for that host or existing device label, or all hosts.\nsheprd ui agent-group [NAME|all]\n    List the agents panel's coordinator groups, or show one group's sessions\n    with its coordinator first. Needs [sidebar] coordinator_suffix.\n    For this window and session; settings are changed with `config`.\nsheprd ui agent-sidebar\n    Read the linked workspace and each shown host's Agent Sidebar summary.\nsheprd ui agent-recap --pane ID\n    Open the cached idle recap for a pane on the caller's resolved host.\nsheprd ui agent-sidebar-config [--pane-strip on|off] [--status-text on|off]\n    Read or save the pane-strip and status-text switches in Herdr's config.\n    With no options, read both; with options, save the supplied values."
         }
         "tab" => {
             "sheprd tab [list]\n    The app's own tabs: pages, code, reviews, Devices.\n    Terminal tabs belong to Herdr: use `herdr tab`.\nsheprd tab focus|close ID\n    Show a tab, switching to its workspace, or close it."

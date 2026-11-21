@@ -63,9 +63,12 @@ impl SheprdWindow {
                 (
                     index,
                     &endpoint.id,
+                    endpoint.generation,
                     endpoint.collapsed,
                     endpoint.enabled,
                     snapshot,
+                    live.agent_sidebar.is_supported(),
+                    live.agent_sidebar.projection_stamp(),
                 )
                     .hash(hasher);
                 live.status.is_connected().hash(hasher);
@@ -76,6 +79,14 @@ impl SheprdWindow {
         }
         for key in &self.collapsed_repos {
             mix(&|hasher| ("local", key).hash(hasher));
+        }
+        if let Some(target) = self.sidebar_selection.target() {
+            mix(&|hasher| {
+                target.endpoint.hash(hasher);
+                target.generation.hash(hasher);
+                target.boot.hash(hasher);
+                target.workspace.hash(hasher);
+            });
         }
         // The workspaces the app keeps for herdr-core, and the one in front.
         let core = self

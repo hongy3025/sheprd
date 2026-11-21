@@ -344,3 +344,5 @@ fn host_tag_takes_a_host_and_any_number_of_tags() {
     );
     assert!(parse(&["host", "tag"]).is_err());
 }
+
+mod agent_sidebar;

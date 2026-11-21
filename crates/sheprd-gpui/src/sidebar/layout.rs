@@ -375,6 +375,7 @@ impl SidebarLook {
     ) -> Div {
         let RowState {
             selected: focused,
+            linked,
             highlighted,
             ..
         } = state;
@@ -387,7 +388,7 @@ impl SidebarLook {
             Highlight::Fill => {
                 let active = raised.fill;
                 layer
-                    .when(focused || highlighted, |layer| layer.bg(active))
+                    .when(focused || linked || highlighted, |layer| layer.bg(active))
                     .group_hover(ROW_GROUP, move |s| s.bg(active))
             }
             Highlight::Outline => {
@@ -398,8 +399,9 @@ impl SidebarLook {
                     .when(focused, |layer| {
                         layer.bg(raised.fill).border_color(raised.border)
                     })
-                    .when(!focused && highlighted, |layer| layer.bg(hover))
-                    .when(!focused, |layer| {
+                    .when(!focused && linked, |layer| layer.bg(raised.fill))
+                    .when(!focused && !linked && highlighted, |layer| layer.bg(hover))
+                    .when(!focused && !linked, |layer| {
                         layer.group_hover(ROW_GROUP, move |s| s.bg(hover))
                     })
             }

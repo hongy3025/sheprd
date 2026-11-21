@@ -145,6 +145,7 @@ fn slow_operations_extend_the_answer_timeout() {
     assert_eq!(request(SettingsOp::Bell).wait_seconds(), 0);
 }
 
+mod agent_sidebar;
 mod language;
 
 #[test]

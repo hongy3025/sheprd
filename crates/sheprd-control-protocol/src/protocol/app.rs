@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 mod traces;
 pub use traces::{TaggedHost, TraceFilter, TracePeer, TraceSyncState};
+mod agent_sidebar;
+pub use agent_sidebar::*;
 
 /// What the window shows, picked on the bar. The bar lists them in
 /// declaration order, so this order is what users see.
@@ -143,6 +145,14 @@ pub enum FontSize {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum UiOp {
+    /// The selected sidebar linkage and fork-specific summaries, without
+    /// querying a daemon or including full recap text.
+    AgentSidebar,
+    /// Opens the cached idle recap for one pane; the full message is a reply,
+    /// never part of the sidebar listing.
+    AgentRecap {
+        pane: String,
+    },
     /// Read the app's prepared trace-replication status without starting I/O.
     Traces {},
     TracesFilter {
@@ -243,6 +253,14 @@ pub struct AlertInfo {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Reply {
+    AgentSidebar {
+        state: AgentSidebarState,
+    },
+    AgentRecap {
+        endpoint: String,
+        pane: String,
+        message: String,
+    },
     Traces {
         peers: Vec<TracePeer>,
         #[serde(default)]

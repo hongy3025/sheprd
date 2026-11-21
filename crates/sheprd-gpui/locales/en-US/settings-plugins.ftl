@@ -25,3 +25,7 @@ settings-plugins-native-rows = This app draws its own sidebar rows ([usage] inli
 settings-plugins-use-herdr-rows = Use Herdr's sidebar rows in this app
 settings-plugins-default-rows = The sidebar uses this app's own rows while Herdr's are the defaults. Showing a value switches it to Herdr's configured rows, in your row style; the preview shows how they look.
 settings-plugins-preview = Preview
+settings-plugins-pane-strip = Workspace tab and pane summary
+settings-plugins-pane-strip-detail = Show the tab count and pane status dots.
+settings-plugins-status-text = Workspace agent status
+settings-plugins-status-text-detail = Show the highest-priority agent's status.

@@ -1,6 +1,8 @@
 //! Daemon-free sidebar fixture driver.
 use super::*;
 
+#[path = "smoke_sidebar/agent_summary.rs"]
+mod agent_summary;
 #[path = "smoke_sidebar/quota.rs"]
 mod quota;
 
@@ -760,12 +762,16 @@ pub fn start_sidebar(handle: WindowHandle<SheprdWindow>, cx: &mut App) {
             eprintln!("SIDEBAR native hosts FAIL: {error:#}");
             std::process::exit(1);
         }
+        if let Err(error) = agent_summary::run(handle, cx).await {
+            eprintln!("SIDEBAR native agent summary FAIL: {error:#}");
+            std::process::exit(1);
+        }
         let probes = cx.update(|cx| cx.default_global::<sidebar::layout_tests::PaintedProbes>().check());
         if !matches!(probes, Ok(())) {
             eprintln!("SIDEBAR native paint FAIL: {probes:?}");
             std::process::exit(1);
         }
-        eprintln!("SIDEBAR native PASS: {cascade}; {drawn}/72 Menlo draws (the rest larger than the display), flat and rounded normal/compact/comfortable layouts at 4 sizes, collapse/expand, menu isolation, PR title/stats glyphs, GitHub auth fixtures, right-click dialogs and Unicode fields at 2 sizes; host routing, disabled selection, scoped repositories, resized host/agent glyphs, independent scroll and decoy key window");
+        eprintln!("SIDEBAR native PASS: {cascade}; {drawn}/72 Menlo draws (the rest larger than the display), flat and rounded normal/compact/comfortable layouts at 4 sizes, collapse/expand, menu isolation, PR title/stats glyphs, GitHub auth fixtures, right-click dialogs and Unicode fields at 2 sizes; host routing, disabled selection, scoped repositories, resized host/agent glyphs, independent scroll, agent summary overflow and decoy key window");
         std::process::exit(0);
     })
     .detach();

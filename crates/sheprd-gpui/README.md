@@ -1686,6 +1686,19 @@ first line leads with `state_icon`.
 `rows_by_agent` keys match the daemon's agent IDs directly (for example, `claude`
 or `codex`); the GUI does not maintain a separate registry of allowed IDs.
 
+The native sidebar also reads Herdr's optional `agent_status_messages`
+capability. It ties status messages to the matching boot and snapshot revision,
+then shows a bounded preview beside the agent and pane dots in each workspace.
+Selecting a workspace or agent links the corresponding rows; an idle agent with
+a cached message can open a read-only recap. Older Herdr versions and herdr-core
+do not advertise this capability, so they keep their existing rows and never
+receive fabricated status summaries. The sidebar's `[ui.sidebar.spaces]`
+`pane_strip` and `status_text` switches default to `true`; use
+`sheprd ui agent-sidebar-config --pane-strip off` or
+`--status-text off` to change them in Herdr's shared config. Custom token rows
+and per-agent overrides are preserved. As with the existing shared-config
+editor, writes are unavailable on Windows; the switches remain readable there.
+
 [Usage Tracker (`herdr_agents_tracker`)](https://github.com/VHemanth45/herdr_agents_tracker)
 uses these fields for account usage percentages in the header and per-agent
 context meters in the sidebar. The same rendering supports other plugins that
