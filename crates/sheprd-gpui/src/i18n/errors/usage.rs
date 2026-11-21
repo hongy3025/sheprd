@@ -20,6 +20,7 @@ impl Localize for Error {
             ),
             Self::Connect => fl!("error-usage-connect"),
             Self::Header(_) => fl!("error-usage-header"),
+            Self::InvalidProxy => fl!("error-usage-invalid-proxy"),
             Self::Json(_) => fl!("error-usage-json"),
             Self::KeychainAccess => fl!("error-usage-keychain-access"),
             Self::KeychainDenied => fl!("error-usage-keychain-denied"),

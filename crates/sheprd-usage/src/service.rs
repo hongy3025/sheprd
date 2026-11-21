@@ -32,6 +32,12 @@ impl Setting {
     ) -> Self {
         Self { name, env, message }
     }
+
+    /// Local-only proxy setting shared by providers that opt into per-provider
+    /// proxy routing without duplicating the setting name or empty env list.
+    pub(crate) const fn proxy(message: &'static str) -> Self {
+        Self::new("proxy", &[], message)
+    }
 }
 
 /// What a provider is, for config, the status bar, and the panel. Built in a

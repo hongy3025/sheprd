@@ -18,6 +18,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 
+pub(super) mod proxy;
 mod shell;
 
 pub use shell::Shell;
@@ -370,6 +371,24 @@ impl<'a> Probe<'a> {
             .find(|setting| setting.name == name)
     }
 
+    pub(super) fn local_proxy(&self) -> Option<&SecretString> {
+        match self.exec {
+            Exec::Local => self
+                .settings
+                .and_then(|settings| settings.get("proxy"))
+                .filter(|value| !value.expose_secret().trim_matches(' ').is_empty()),
+            Exec::Remote(_) => None,
+        }
+    }
+
+    fn local_ureq_proxy(&self) -> Result<Option<ureq::Proxy>> {
+        let Some(raw) = self.local_proxy() else {
+            return Ok(None);
+        };
+        let no_proxy = proxy::env_no_proxy();
+        proxy::build_ureq_proxy(raw, no_proxy.as_deref()).map(Some)
+    }
+
     /// An environment variable on the probed host.
     pub fn env(&mut self, name: &str) -> Option<Secret> {
         match self.exec {
@@ -579,11 +598,12 @@ impl<'a> Probe<'a> {
     pub fn command(&mut self, program: &str, args: &[&str], timeout: Duration) -> Result<Output> {
         match self.exec {
             Exec::Local => {
-                let mut command = sheprd_client::new_command(program);
-                command
-                    .args(args)
-                    .env("PATH", local_path())
-                    .env("NO_COLOR", "1");
+                let proxy = self
+                    .local_proxy()
+                    .map(proxy::command_proxy_value)
+                    .transpose()?;
+                let mut command =
+                    proxy::local_command(program, args, proxy.as_deref().map(String::as_str));
                 let (success, bytes) = output(&mut command, timeout, "run a provider command")?;
                 Ok(Output {
                     success,
@@ -689,7 +709,10 @@ impl<'a> Probe<'a> {
 
     pub fn http(&mut self, request: Request) -> Result<Response> {
         match self.place(&request)? {
-            Place::Here => http_local(&request),
+            Place::Here => {
+                let proxy = self.local_ureq_proxy()?;
+                http_local(&request, proxy)
+            }
             Place::There => match self.exec {
                 Exec::Remote(shell) => shell.http(&request),
                 Exec::Local => Err(Error::MixedSecrets),
@@ -708,7 +731,8 @@ impl<'a> Probe<'a> {
     pub fn exchange(&mut self, request: Request, path: &[&str]) -> Result<Secret> {
         match self.place(&request)? {
             Place::Here => {
-                let body = http_local(&request)?.ok()?;
+                let proxy = self.local_ureq_proxy()?;
+                let body = http_local(&request, proxy)?.ok()?;
                 json_field(&body, path)
                     .map(|value| Secret::from(SecretString::from(value)))
                     .ok_or(Error::Json(serde_json::error::Category::Data))
@@ -800,13 +824,22 @@ fn text_of(parts: &[Part]) -> Option<Zeroizing<String>> {
     Some(text)
 }
 
-fn http_local(request: &Request) -> Result<Response> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(request.timeout))
+pub(super) fn local_agent_config(
+    timeout: Duration,
+    proxy: Option<ureq::Proxy>,
+) -> ureq::config::Config {
+    let builder = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
         .max_redirects(0)
-        .http_status_as_error(false)
-        .build()
-        .into();
+        .http_status_as_error(false);
+    match proxy {
+        Some(proxy) => builder.proxy(Some(proxy)).build(),
+        None => builder.build(),
+    }
+}
+
+pub(super) fn http_local(request: &Request, proxy: Option<ureq::Proxy>) -> Result<Response> {
+    let agent: ureq::Agent = local_agent_config(request.timeout, proxy).into();
     let mut headers = Vec::with_capacity(request.headers.len());
     for (name, parts) in &request.headers {
         let text = text_of(parts).ok_or(Error::MixedSecrets)?;
