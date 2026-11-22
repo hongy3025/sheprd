@@ -344,6 +344,19 @@ pub(in crate::sidebar) fn pane_strip(
     Some((used, strip))
 }
 
+/// Secondary gray for status-text lines in Spaces and Agents so messages
+/// stay legible without overpowering workspace or agent titles.
+pub(in crate::sidebar) fn status_text_color(
+    is_message: bool,
+    theme: &crate::config::Theme,
+) -> u32 {
+    if is_message {
+        theme.ink(theme.dimmed(theme.foreground))
+    } else {
+        theme.muted
+    }
+}
+
 /// Winning agent name + live status message (or fallback state label), placed
 /// directly inside a workspace row or card.
 pub(in crate::sidebar) fn workspace_status_line(
@@ -362,11 +375,7 @@ pub(in crate::sidebar) fn workspace_status_line(
     let sep_width = (3. * glyph).ceil().min((width - agent_width).max(0.));
     let message_width = (width - agent_width - sep_width).max(0.);
     let selector = format!("workspace-status-{workspace_id}");
-    let message_color = if status.is_message {
-        theme.foreground
-    } else {
-        theme.subtext()
-    };
+    let message_color = status_text_color(status.is_message, theme);
 
     div()
         .debug_selector(move || selector)
@@ -450,12 +459,16 @@ pub(in crate::sidebar) fn agent_status_line(
         } else {
             SharedString::from(message.to_owned())
         };
-        (display, theme.foreground, format!("agent-message-{pane_id}"))
+        (
+            display,
+            status_text_color(true, theme),
+            format!("agent-message-{pane_id}"),
+        )
     } else {
         let fallback = row.fallback_status.as_ref()?;
         (
             fallback.clone(),
-            theme.subtext(),
+            status_text_color(false, theme),
             format!("agent-status-fallback-{pane_id}"),
         )
     };

@@ -669,6 +669,40 @@ fn pane_badge_colors_meet_contrast_and_stay_distinct_across_themes() {
     }
 }
 
+#[test]
+#[allow(clippy::unwrap_used)]
+fn status_text_colors_are_softer_than_foreground_and_keep_contrast() {
+    use crate::config::Theme;
+    use crate::contrast::Contrast;
+    use crate::sidebar::row::agent_sidebar::status_text_color;
+
+    for name in Theme::BUILTIN_NAMES {
+        for contrast in [Contrast::Standard, Contrast::High] {
+            let theme = Theme::builtin(name).unwrap().with_contrast(contrast);
+            let message_color = status_text_color(true, &theme);
+            for background in [theme.background, theme.surface, theme.active] {
+                let ratio = crate::contrast::ratio(message_color, background);
+                assert!(
+                    ratio >= contrast.mark_ratio(),
+                    "{name} {contrast:?} on {background:06x}: {ratio}"
+                );
+            }
+            assert_eq!(status_text_color(false, &theme), theme.muted);
+        }
+    }
+
+    for name in ["Default", "Catppuccin Mocha", "Catppuccin Latte"] {
+        let theme = Theme::builtin(name).unwrap();
+        let message_ratio =
+            crate::contrast::ratio(status_text_color(true, &theme), theme.background);
+        let fg_ratio = crate::contrast::ratio(theme.foreground, theme.background);
+        assert!(
+            message_ratio < fg_ratio,
+            "{name}: message_ratio={message_ratio} should be softer than fg_ratio={fg_ratio}"
+        );
+    }
+}
+
 #[gpui::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn focused_workspace_without_agents_uses_neutral_gray_focus_bar(cx: &mut gpui::TestAppContext) {
