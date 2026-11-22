@@ -89,30 +89,48 @@ fn pin_config_home(command: &mut Command, root: Option<std::ffi::OsString>) {
 const NAME: &str = if cfg!(windows) { "herdr.exe" } else { "herdr" };
 
 pub(crate) fn executable() -> PathBuf {
-    // Finder launches have a minimal PATH, which often omits Homebrew and Cargo.
-    let path = env::var_os("PATH").unwrap_or_default();
-    let candidates = env::split_paths(&path)
+    let exe = env::current_exe().ok();
+    let path = env::var_os("PATH");
+    let home =
+        env::var_os("HOME").or_else(|| cfg!(windows).then(|| env::var_os("USERPROFILE")).flatten());
+    executable_in(exe.as_deref(), path.as_deref(), home.as_deref())
+}
+
+fn executable_in(
+    exe: Option<&Path>,
+    path: Option<&std::ffi::OsStr>,
+    home: Option<&std::ffi::OsStr>,
+) -> PathBuf {
+    let beside = exe.into_iter().flat_map(|exe| {
+        let real = std::fs::canonicalize(exe).ok();
+        [
+            exe.parent().map(Path::to_owned),
+            real.and_then(|real| real.parent().map(Path::to_owned)),
+        ]
+    });
+    // Prefer a custom daemon shipped beside `sheprd.exe` (e.g. portable bundle)
+    // before falling back to PATH and user-local bin directories.
+    beside
+        .flatten()
         .map(|dir| dir.join(NAME))
         .chain(
-            env::var_os("HOME")
-                .or_else(|| cfg!(windows).then(|| env::var_os("USERPROFILE")).flatten())
-                .into_iter()
-                .flat_map(|home| {
-                    let home = PathBuf::from(home);
-                    [
-                        home.join(".local").join("bin").join(NAME),
-                        home.join(".cargo").join("bin").join(NAME),
-                    ]
-                }),
+            path.into_iter()
+                .flat_map(env::split_paths)
+                .map(|dir| dir.join(NAME)),
         )
+        .chain(home.into_iter().flat_map(|home| {
+            let home = PathBuf::from(home);
+            [
+                home.join(".local").join("bin").join(NAME),
+                home.join(".cargo").join("bin").join(NAME),
+            ]
+        }))
         .chain(
             crate::local_path::HOMEBREW_DIRS
                 .iter()
                 .map(|dir| Path::new(dir).join(NAME)),
-        );
-    candidates
-        .into_iter()
-        .find(|path| path.is_file())
+        )
+        .find(|candidate| candidate.is_file())
         .unwrap_or_else(|| NAME.into())
 }
 
@@ -329,3 +347,41 @@ fn connect_or_start(
 #[cfg(all(test, unix))]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod executable_tests {
+    use super::*;
+
+    #[test]
+    fn prefers_sibling_herdr_next_to_sheprd_before_path_and_home() {
+        let dir = tempfile::tempdir().unwrap();
+        let app_dir = dir.path().join("portable");
+        let path_dir = dir.path().join("path");
+        let home_dir = dir.path().join("home");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::create_dir_all(&path_dir).unwrap();
+        std::fs::create_dir_all(home_dir.join(".cargo").join("bin")).unwrap();
+
+        let exe = app_dir.join("sheprd.exe");
+        let sibling = app_dir.join(NAME);
+        let on_path = path_dir.join(NAME);
+        let in_cargo = home_dir.join(".cargo").join("bin").join(NAME);
+        std::fs::write(&exe, b"").unwrap();
+        std::fs::write(&sibling, b"").unwrap();
+        std::fs::write(&on_path, b"").unwrap();
+        std::fs::write(&in_cargo, b"").unwrap();
+
+        let joined_path = env::join_paths([&path_dir]).unwrap();
+        assert_eq!(
+            executable_in(Some(&exe), Some(&joined_path), Some(home_dir.as_os_str())),
+            sibling
+        );
+
+        std::fs::remove_file(&sibling).unwrap();
+        assert_eq!(
+            executable_in(Some(&exe), Some(&joined_path), Some(home_dir.as_os_str())),
+            on_path
+        );
+    }
+}
