@@ -3,7 +3,7 @@ use super::super::{
     summary::WorkspaceSummary,
 };
 use super::wrapped_status::WrappedStatusText;
-use crate::{direction::Logical, i18n::fl, window::SheprdWindow};
+use crate::{direction::Logical, i18n::fl, icons::AgentIcon, window::SheprdWindow};
 use gpui::{prelude::*, *};
 use sheprd_client::protocol::AgentStatus;
 use std::borrow::Cow;
@@ -54,24 +54,91 @@ pub(in crate::sidebar) fn focus_bar(
         .bg(rgb(color))
 }
 
-/// Herdr's `pane_strip` always draws panes with the symbol set (`×`, `◐`, `✓`,
-/// `○`, `·`), independent of the workspace row's leading `status_icons` style.
+/// Semantic status color for the Spaces sidebar's `pane_strip` badges.
+/// Because agent brand icons replace status shapes, color alone must clearly
+/// separate every `AgentStatus` at 12px across dark, light, and high-contrast
+/// themes.
+pub(in crate::sidebar) fn pane_badge_color(
+    status: AgentStatus,
+    theme: &crate::config::Theme,
+) -> u32 {
+    match status {
+        AgentStatus::Blocked => theme.ink(0xf87171),
+        AgentStatus::Working => theme.ink(0xfbbf24),
+        AgentStatus::Done => theme.ink(0x4ade80),
+        AgentStatus::Idle => theme.subtext(),
+        AgentStatus::Unknown => theme.ink(theme.muted),
+    }
+}
+
+/// Attention symbol used for `other_tabs_attention` in `pane_strip`.
 fn pane_symbol_asset(status: AgentStatus) -> (&'static str, &'static str) {
-    let name = match status {
-        AgentStatus::Blocked => "blocked",
-        AgentStatus::Working => "working",
-        AgentStatus::Done => "done",
-        AgentStatus::Idle => "idle",
-        AgentStatus::Unknown => "unknown",
-    };
+    let name = super::super::agents::status_key(status);
     let path = crate::icons::status_icon(crate::config::StatusIcons::Tiles, status)
         .unwrap_or("icons/status-mark-unknown.svg");
     (name, path)
 }
 
-/// Compact inline pane strip (tab badge when `>= 2` tabs, plus pane status
-/// symbols when `>= 2` panes) sized to fit within `max_width` on a workspace's
-/// first line.
+fn pane_dot_icon(
+    workspace_id: &str,
+    index: usize,
+    agent: Option<AgentIcon>,
+    status_name: &str,
+    symbol_size: f32,
+    color: u32,
+) -> AnyElement {
+    match agent {
+        Some(AgentIcon::Omo) => {
+            let selector = format!("pane-dot-agent-{workspace_id}-{index}-omo-{status_name}");
+            let inner_size = (symbol_size - 2.).max(6.);
+            div()
+                .debug_selector(move || selector)
+                .size(px(symbol_size))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(3.))
+                .bg(rgba((color << 8) | 0x26))
+                .border_1()
+                .border_color(rgb(color))
+                .child(
+                    img(AgentIcon::Omo.path())
+                        .size(px(inner_size))
+                        .flex_none()
+                        .object_fit(ObjectFit::Contain),
+                )
+                .into_any_element()
+        }
+        Some(agent) => {
+            let selector = format!(
+                "pane-dot-agent-{workspace_id}-{index}-{}-{status_name}",
+                agent.identity()
+            );
+            svg()
+                .debug_selector(move || selector)
+                .path(agent.path())
+                .size(px(symbol_size))
+                .flex_none()
+                .text_color(rgb(color))
+                .into_any_element()
+        }
+        None => {
+            let selector = format!("pane-dot-symbol-{workspace_id}-{index}-unknown");
+            svg()
+                .debug_selector(move || selector)
+                .path("icons/status-mark-unknown.svg")
+                .size(px(symbol_size))
+                .flex_none()
+                .text_color(rgb(color))
+                .into_any_element()
+        }
+    }
+}
+
+/// Compact inline pane strip (tab badge when `>= 2` tabs, plus pane agent
+/// icons tinted by status when `>= 2` panes) sized to fit within `max_width`
+/// on a workspace's first line.
 pub(in crate::sidebar) fn pane_strip(
     workspace_id: &str,
     summary: &WorkspaceSummary,
@@ -89,10 +156,10 @@ pub(in crate::sidebar) fn pane_strip(
     let line_h = super::line_height(font);
     let small = (font.size * 0.8).round().max(9.);
     let small_glyph = super::glyph_width(font) * small / font.size;
-    let symbol_size = super::scaled(font, 12.).max(9.);
-    let underline_w = (symbol_size * 0.7).round().max(6.);
-    let underline_bottom = ((line_h - symbol_size) * 0.5 - 2.).max(0.5);
-    let dot_gap = 1.;
+    let symbol_size = super::scaled(font, 12.).max(10.);
+    let underline_w = (symbol_size * 0.75).round().max(6.);
+    let underline_bottom = ((line_h - symbol_size) * 0.5 - 2.5).max(0.);
+    let dot_gap = 3.;
     let group_gap = 4.;
     let text_width = |text: &str| (UnicodeWidthStr::width(text) as f32 * small_glyph).ceil() + 2.;
 
@@ -171,8 +238,8 @@ pub(in crate::sidebar) fn pane_strip(
     let has_tabs = tab_part.is_some();
     if let Some((label, label_width, attention)) = tab_part {
         let tab_color = match attention {
-            Some(AgentStatus::Blocked) => cx.indicators.color(AgentStatus::Blocked),
-            Some(AgentStatus::Done) => cx.indicators.color(AgentStatus::Done),
+            Some(AgentStatus::Blocked) => pane_badge_color(AgentStatus::Blocked, theme),
+            Some(AgentStatus::Done) => pane_badge_color(AgentStatus::Done, theme),
             _ => theme.muted,
         };
         let tab_selector = format!("workspace-tab-count-{workspace_id}");
@@ -206,7 +273,7 @@ pub(in crate::sidebar) fn pane_strip(
                             .path(path)
                             .size(px(symbol_size))
                             .flex_none()
-                            .text_color(rgb(cx.indicators.color(status))),
+                            .text_color(rgb(pane_badge_color(status, theme))),
                     ),
             );
         }
@@ -222,10 +289,9 @@ pub(in crate::sidebar) fn pane_strip(
             .when(has_tabs, |group| group.ms(px(group_gap)));
         for (index, dot) in summary.pane_dots.iter().take(visible).enumerate() {
             let dot_status = dot.status.unwrap_or(AgentStatus::Unknown);
-            let color = cx.indicators.color(dot_status);
-            let (status_name, path) = pane_symbol_asset(dot_status);
+            let color = pane_badge_color(dot_status, theme);
+            let status_name = super::super::agents::status_key(dot_status);
             let dot_selector = format!("pane-dot-{workspace_id}-{index}");
-            let symbol_selector = format!("pane-dot-symbol-{workspace_id}-{index}-{status_name}");
             let element = div()
                 .debug_selector(move || dot_selector)
                 .relative()
@@ -235,14 +301,14 @@ pub(in crate::sidebar) fn pane_strip(
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(
-                    svg()
-                        .debug_selector(move || symbol_selector)
-                        .path(path)
-                        .size(px(symbol_size))
-                        .flex_none()
-                        .text_color(rgb(color)),
-                )
+                .child(pane_dot_icon(
+                    workspace_id,
+                    index,
+                    dot.agent,
+                    status_name,
+                    symbol_size,
+                    color,
+                ))
                 .when(dot.winner, |slot| {
                     let winner_selector = format!("pane-dot-winner-{workspace_id}-{index}");
                     slot.child(

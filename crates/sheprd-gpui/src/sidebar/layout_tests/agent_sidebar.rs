@@ -486,7 +486,7 @@ fn workspace_summary_agent_status_and_focus_bar_fit_inside_every_layout_row(
 
 #[gpui::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-fn pane_strip_uses_herdr_status_symbols_with_aligned_winner_underline(
+fn pane_strip_uses_agent_icons_with_status_colors_and_aligned_winner_underline(
     cx: &mut gpui::TestAppContext,
 ) {
     let (view, cx) = cx.add_window_view(|window, cx| {
@@ -504,23 +504,24 @@ fn pane_strip_uses_herdr_status_symbols_with_aligned_winner_underline(
         snapshot.panes.clear();
         snapshot.agents.clear();
 
-        // Five panes covering Done (winner), Working, Idle, Unknown, and non-agent.
-        let statuses = [
-            Some(AgentStatus::Done),
-            Some(AgentStatus::Working),
-            Some(AgentStatus::Idle),
-            Some(AgentStatus::Unknown),
-            None,
+        // Five panes covering Done (winner), Working, Idle, Unknown (Omo PNG), and non-agent.
+        let panes = [
+            (Some("claude"), Some(AgentStatus::Done)),
+            (Some("omp"), Some(AgentStatus::Working)),
+            (Some("agy"), Some(AgentStatus::Idle)),
+            (Some("omo"), Some(AgentStatus::Unknown)),
+            (None, None),
         ];
-        for (index, status) in statuses.into_iter().enumerate() {
+        for (index, (kind, status)) in panes.into_iter().enumerate() {
             let pane_id = format!("w1:p{}", index + 1);
             let mut pane = base_pane.clone();
             pane.pane_id = pane_id.clone();
             pane.focused = index == 2;
             snapshot.panes.push(pane);
-            if let Some(status) = status {
+            if let (Some(kind), Some(status)) = (kind, status) {
                 let mut agent = base_agent.clone();
                 agent.pane_id = pane_id;
+                agent.agent = Some(kind.into());
                 agent.agent_status = status;
                 agent.focused = index == 2;
                 snapshot.agents.push(agent);
@@ -556,22 +557,22 @@ fn pane_strip_uses_herdr_status_symbols_with_aligned_winner_underline(
     draw_sidebar(cx);
 
     let done = cx
-        .debug_bounds("pane-dot-symbol-w1-0-done")
-        .expect("done symbol");
+        .debug_bounds("pane-dot-agent-w1-0-claude-done")
+        .expect("done agent icon");
     let working = cx
-        .debug_bounds("pane-dot-symbol-w1-1-working")
-        .expect("working symbol");
+        .debug_bounds("pane-dot-agent-w1-1-omp-working")
+        .expect("working agent icon");
     let idle = cx
-        .debug_bounds("pane-dot-symbol-w1-2-idle")
-        .expect("idle symbol");
+        .debug_bounds("pane-dot-agent-w1-2-agy-idle")
+        .expect("idle agent icon");
     let unknown = cx
-        .debug_bounds("pane-dot-symbol-w1-3-unknown")
-        .expect("unknown symbol");
+        .debug_bounds("pane-dot-agent-w1-3-omo-unknown")
+        .expect("unknown omo agent badge");
     let shell = cx
         .debug_bounds("pane-dot-symbol-w1-4-unknown")
         .expect("non-agent pane uses unknown symbol");
 
-    // Winner underline sits on the Done pane without shifting its symbol baseline.
+    // Winner underline sits on the Done pane without shifting its icon baseline.
     let underline = cx
         .debug_bounds("pane-dot-winner-w1-0")
         .expect("winner underline");
@@ -583,7 +584,7 @@ fn pane_strip_uses_herdr_status_symbols_with_aligned_winner_underline(
     assert_eq!(done.top(), shell.top());
     assert!(underline.top() >= done.center().y);
 
-    // Blocked outranks Done and moves the winner underline to the blocked symbol.
+    // Blocked outranks Done and moves the winner underline to the blocked agent icon.
     view.update(cx, |view, cx| {
         let mut next = (**view.live.snapshot.as_ref().unwrap()).clone();
         next.revision += 1;
@@ -596,9 +597,48 @@ fn pane_strip_uses_herdr_status_symbols_with_aligned_winner_underline(
         cx.notify();
     });
     draw_sidebar(cx);
-    assert!(cx.debug_bounds("pane-dot-symbol-w1-1-blocked").is_some());
+    assert!(cx.debug_bounds("pane-dot-agent-w1-1-omp-blocked").is_some());
     assert!(cx.debug_bounds("pane-dot-winner-w1-1").is_some());
     assert!(cx.debug_bounds("pane-dot-winner-w1-0").is_none());
+}
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn pane_badge_colors_meet_contrast_and_stay_distinct_across_themes() {
+    use crate::config::Theme;
+    use crate::contrast::Contrast;
+    use crate::sidebar::row::agent_sidebar::pane_badge_color;
+
+    let statuses = [
+        AgentStatus::Blocked,
+        AgentStatus::Working,
+        AgentStatus::Done,
+        AgentStatus::Idle,
+        AgentStatus::Unknown,
+    ];
+    for name in Theme::BUILTIN_NAMES {
+        for contrast in [Contrast::Standard, Contrast::High] {
+            let theme = Theme::builtin(name).unwrap().with_contrast(contrast);
+            for status in statuses {
+                let color = pane_badge_color(status, &theme);
+                for background in [theme.background, theme.surface, theme.active] {
+                    let ratio = crate::contrast::ratio(color, background);
+                    assert!(
+                        ratio >= contrast.mark_ratio(),
+                        "{name} {contrast:?} {status:?} on {background:06x}: {ratio}"
+                    );
+                }
+            }
+            let primary = [
+                pane_badge_color(AgentStatus::Blocked, &theme),
+                pane_badge_color(AgentStatus::Working, &theme),
+                pane_badge_color(AgentStatus::Done, &theme),
+                pane_badge_color(AgentStatus::Idle, &theme),
+            ];
+            let unique: std::collections::HashSet<_> = primary.into_iter().collect();
+            assert_eq!(unique.len(), 4, "{name} {contrast:?}: {primary:?}");
+        }
+    }
 }
 
 #[gpui::test]

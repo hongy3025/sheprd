@@ -2,6 +2,7 @@
 #[path = "summary/tests.rs"]
 mod tests;
 use super::status_priority;
+use crate::icons::AgentIcon;
 use sheprd_client::protocol::{
     AgentStatus, ClientShellAgent, ClientShellSnapshot, endpoint::EndpointAgentStatusMessages,
 };
@@ -30,6 +31,7 @@ pub(crate) struct WorkspaceSummary {
 pub(crate) struct PaneDot {
     pub(crate) pane_index: usize,
     pub(crate) status: Option<AgentStatus>,
+    pub(crate) agent: Option<AgentIcon>,
     pub(crate) winner: bool,
 }
 
@@ -101,12 +103,15 @@ impl Prepared {
             let Some(workspace_index) = workspace_indices.get(pane.workspace_id.as_str()) else {
                 continue;
             };
-            let status = agents_by_pane
+            let agent = agents_by_pane
                 .get(pane.pane_id.as_str())
-                .map(|index| snapshot.agents[*index].agent_status);
+                .map(|index| &snapshot.agents[*index]);
+            let status = agent.map(|agent| agent.agent_status);
+            let agent = agent.map(|agent| AgentIcon::from_identity(agent.agent.as_deref()));
             workspaces[*workspace_index].pane_dots.push(PaneDot {
                 pane_index,
                 status,
+                agent,
                 winner: false,
             });
         }

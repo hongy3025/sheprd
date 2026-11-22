@@ -34,6 +34,14 @@ macro_rules! agent_icons {
                 }
             }
 
+            pub(crate) fn identity(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $label,)+
+                    Self::Coordinator => "coordinator",
+                    Self::Generic => "generic",
+                }
+            }
+
             fn bytes(self) -> &'static [u8] {
                 match self {
                     $(Self::$variant => include_bytes!(concat!(

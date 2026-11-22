@@ -250,3 +250,36 @@ fn message_preview_caps_unicode_without_copying_the_full_message() {
     assert_eq!(prepared.full_message("w1:p1").unwrap().chars().count(), 201);
     assert!(prepared.agent("w1:p1").unwrap().idle_recap);
 }
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn pane_dots_record_agent_icons_for_known_unknown_and_shell_panes() {
+    let mut snapshot = snapshot();
+    let next = Arc::make_mut(&mut snapshot);
+    let base_agent = next.agents[0].clone();
+    let base_pane = next.panes[0].clone();
+
+    let mut omp = agent(&base_agent, "w1:p2", "w1:t1", AgentStatus::Working, false);
+    omp.agent = Some("omp".into());
+    let mut omo = agent(&base_agent, "w1:p3", "w1:t1", AgentStatus::Idle, false);
+    omo.agent = Some("omo".into());
+    let mut future = agent(&base_agent, "w1:p4", "w1:t1", AgentStatus::Done, false);
+    future.agent = Some("future-agent".into());
+
+    next.agents.extend([omp, omo, future]);
+    next.panes.extend([
+        pane(&base_pane, "w1:p2", "w1:t1"),
+        pane(&base_pane, "w1:p3", "w1:t1"),
+        pane(&base_pane, "w1:p4", "w1:t1"),
+        pane(&base_pane, "w1:shell", "w1:t1"),
+    ]);
+
+    let prepared = make_prepared(snapshot);
+    let summary = prepared.workspace("w1").unwrap();
+    assert_eq!(summary.pane_dots.len(), 5);
+    assert_eq!(summary.pane_dots[0].agent, Some(AgentIcon::Claude));
+    assert_eq!(summary.pane_dots[1].agent, Some(AgentIcon::Omp));
+    assert_eq!(summary.pane_dots[2].agent, Some(AgentIcon::Omo));
+    assert_eq!(summary.pane_dots[3].agent, Some(AgentIcon::Generic));
+    assert_eq!(summary.pane_dots[4].agent, None);
+}
