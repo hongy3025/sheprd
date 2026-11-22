@@ -137,8 +137,8 @@ fn pane_dot_icon(
 }
 
 /// Compact inline pane strip (tab badge when `>= 2` tabs, plus pane agent
-/// icons tinted by status when `>= 2` panes) sized to fit within `max_width`
-/// on a workspace's first line.
+/// icons tinted by status when `>= 2` panes or at least one agent pane) sized
+/// to fit within `max_width` on a workspace's first line.
 pub(in crate::sidebar) fn pane_strip(
     workspace_id: &str,
     summary: &WorkspaceSummary,
@@ -146,7 +146,8 @@ pub(in crate::sidebar) fn pane_strip(
     cx: &RowContext<'_>,
 ) -> Option<(f32, Div)> {
     let show_tabs = summary.tab_count >= 2;
-    let show_dots = summary.pane_dots.len() >= 2;
+    let show_dots = summary.pane_dots.len() >= 2
+        || summary.pane_dots.iter().any(|dot| dot.agent.is_some());
     if (!show_tabs && !show_dots) || max_width <= 0. {
         return None;
     }

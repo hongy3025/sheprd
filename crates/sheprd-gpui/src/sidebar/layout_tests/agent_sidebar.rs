@@ -462,7 +462,25 @@ fn workspace_summary_agent_status_and_focus_bar_fit_inside_every_layout_row(
             "{mode:?}: unfocused agent must not have a focus bar"
         );
 
-        // Workspace 2 shows its winning working agent's live status message.
+        // Workspace 2 shows its winning working agent's live status message,
+        // and its single-agent pane badge still renders inside the row.
+        let ws2_row = cx.debug_bounds("row-other").expect("workspace 2 row");
+        for selector in [
+            "pane-strip-w2",
+            "pane-dot-agent-w2-0-omp-working",
+            "pane-dot-winner-w2-0",
+        ] {
+            let child = cx
+                .debug_bounds(selector)
+                .unwrap_or_else(|| panic!("{mode:?}: {selector}"));
+            assert!(
+                child.top() >= ws2_row.top()
+                    && child.bottom() <= ws2_row.bottom()
+                    && child.left() >= ws2_row.left()
+                    && child.right() <= ws2_row.right(),
+                "{mode:?}: {selector} {child:?} escapes workspace 2 row {ws2_row:?}"
+            );
+        }
         assert!(
             cx.update(|_, cx| cx
                 .global::<TextProbes>()
@@ -688,6 +706,10 @@ fn focused_workspace_without_agents_uses_neutral_gray_focus_bar(cx: &mut gpui::T
         assert!(
             cx.debug_bounds("workspace-focus-bar-w1").is_none(),
             "{mode:?}: workspace without agents must not use green focus bar"
+        );
+        assert!(
+            cx.debug_bounds("pane-strip-w1").is_none(),
+            "{mode:?}: single plain-shell workspace must not show pane strip"
         );
     }
 
