@@ -108,6 +108,29 @@ fn a_title_loses_what_untrusted_text_may_not_carry() {
     assert_eq!(shown(&snapshot).as_deref(), Some("one two"));
 }
 
+#[test]
+fn path_titles_show_only_their_basename() {
+    for (raw, expected) in [
+        ("/Users/hongy/AI/sheprd", "sheprd"),
+        ("/Users/hongy/AI/sheprd/", "sheprd"),
+        (r"D:\AI\sheprd", "sheprd"),
+        (r"D:\AI\sheprd\", "sheprd"),
+        ("D:/AI/my repo", "my repo"),
+        ("~/code/herdr", "herdr"),
+        (
+            "/very/long/directory/prefix/with/many/segments/that/exceeds/sixty/four/chars/target-repo",
+            "target-repo",
+        ),
+        ("fix auth/login bug", "fix auth/login bug"),
+        ("/", "/"),
+        (r"C:\", r"C:\"),
+    ] {
+        let mut snapshot = snapshot();
+        snapshot.agents[0].terminal_title_stripped = Some(raw.into());
+        assert_eq!(shown(&snapshot).as_deref(), Some(expected), "{raw}");
+    }
+}
+
 /// Draws the fixture's tab and returns its width and the label the strip
 /// gave it, with the setting as `on` says.
 fn drawn(cx: &mut TestAppContext, on: bool) -> (Pixels, SharedString) {
