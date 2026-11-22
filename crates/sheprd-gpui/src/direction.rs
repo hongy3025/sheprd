@@ -106,6 +106,15 @@ pub(crate) trait Logical: Styled + Sized {
         }
     }
 
+    /// Rounds the two corners on the start side.
+    fn rounded_s(self, radius: impl Clone + Into<AbsoluteLength>) -> Self {
+        if is_rtl() {
+            self.rounded_r(radius)
+        } else {
+            self.rounded_l(radius)
+        }
+    }
+
     /// Rounds the two corners on the end side.
     fn rounded_e(self, radius: impl Clone + Into<AbsoluteLength>) -> Self {
         if is_rtl() {

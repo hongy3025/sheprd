@@ -221,10 +221,9 @@ impl SheprdWindow {
             }
             let snapshot = live.snapshot.as_deref();
             let prepared = live.agent_sidebar.prepared();
+            let effective_selection = self.effective_sidebar_target();
             let silenced = snapshot
-                .map(|snapshot| {
-                    crate::notification_mutes::Mutes::silenced_in(cx, endpoint, snapshot)
-                })
+                .map(|s| crate::notification_mutes::Mutes::silenced_in(cx, endpoint, s))
                 .unwrap_or_default();
             let pr_view = self.endpoint_pr_view(endpoint_index);
             let collapsed_repos = if endpoint_index == 0 {
@@ -344,9 +343,8 @@ impl SheprdWindow {
                         snapshot,
                         &workspace.id,
                         &self.config.sidebar_layout.spaces,
-                        &self.sidebar_selection,
-                        &endpoint.id,
-                        endpoint.generation,
+                        effective_selection.as_ref(),
+                        endpoint,
                     );
                     let muted = silenced.workspace(&workspace.id);
                     let lines = if spaces_custom {
@@ -451,16 +449,15 @@ impl SheprdWindow {
                                     cx,
                                 ))
                         });
-                    let accessible_name = workspace_rows::accessible_name(
+                    let accessible_name = sidebar_summary.accessible_name(
                         label,
                         linked,
                         shown_status,
                         muted,
                         row_cx.host,
-                        sidebar_summary.summary,
                         self.config.sidebar_layout.spaces.pane_strip,
-                        sidebar_summary.status_text.as_deref(),
                     );
+                    let linked_marker = sidebar_summary.marker(&endpoint_id, &id);
                     let element = Cell::new(
                         rows,
                         RowData::Workspace(WorkspaceRow {
@@ -503,10 +500,13 @@ impl SheprdWindow {
                             ),
                             removing: removing_row,
                             status: shown_status,
+                            has_agents: sessions
+                                .agents()
+                                .any(|agent| agent.workspace == workspace.id),
                             lines,
                             summary: sidebar_summary.summary,
                             pane_strip: self.config.sidebar_layout.spaces.pane_strip,
-                            summary_text: sidebar_summary.status_text,
+                            summary_status: sidebar_summary.status,
                         }),
                         &row_cx,
                     )
@@ -518,7 +518,7 @@ impl SheprdWindow {
                         (false, true) => RowLift::Passed,
                         (false, false) => RowLift::Resting,
                     })
-                    .row()
+                    .interactive_row(cx)
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -545,9 +545,7 @@ impl SheprdWindow {
                         },
                     )
                     .id(SharedString::from(format!("workspace-{endpoint_id}-{id}")))
-                    .when(sidebar_summary.linked, |row| {
-                        row.debug_selector(|| format!("linked-workspace-{endpoint_id}-{id}"))
-                    })
+                    .children(linked_marker)
                     .map(|row| self.workspace_item(row, accessible_name, focused, folds, cx))
                     .when(multi, |row| {
                         row.debug_selector(|| format!("workspace-{endpoint_id}-{id}"))
@@ -560,6 +558,7 @@ impl SheprdWindow {
                         );
                         if selected {
                             this.select_sidebar_workspace(&navigate_endpoint, &id);
+                            cx.notify();
                         }
                         window.focus(&this.focus, cx);
                         // The first click of a double-click has already selected

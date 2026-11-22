@@ -279,23 +279,23 @@ pub(super) fn wash(color: u32, alpha: u8) -> Rgba {
 /// passes stop answering hover, leaving the gap to mark where it lands.
 pub(super) fn mark(row: Div, state: RowState, colors: (Rgba, Rgba), theme: &Theme) -> Div {
     let (fill, hover) = colors;
-    let selected = state.selected;
+    let marked = state.selected || state.linked;
     match state.lift {
         // Only a border the layout already draws is colored: adding one
         // would resize the row the list measured.
         RowLift::Lifted => row
-            .bg(rgb(if selected {
+            .bg(rgb(if marked {
                 theme.active
             } else {
                 theme.sidebar_background()
             }))
-            .border_color(wash(theme.foreground, if selected { 0x40 } else { 0x20 }))
+            .border_color(wash(theme.foreground, if marked { 0x40 } else { 0x20 }))
             .shadow_lg(),
-        RowLift::Passed => row.when(selected, |row| row.bg(fill)),
+        RowLift::Passed => row.when(marked, |row| row.bg(fill)),
         RowLift::Resting => row
-            .when(selected, |row| row.bg(fill))
-            .when(!selected && state.highlighted, |row| row.bg(hover))
-            .when(!selected, |row| row.hover(move |style| style.bg(hover))),
+            .when(marked, |row| row.bg(fill))
+            .when(!marked && state.highlighted, |row| row.bg(hover))
+            .when(!marked, |row| row.hover(move |style| style.bg(hover))),
     }
 }
 

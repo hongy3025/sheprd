@@ -147,21 +147,20 @@ impl SheprdWindow {
             row_cx.host,
         );
         let icon = agent.icon(&self.config.sidebar_style);
-        let preview = if matches!(&agent, Listed::Herdr1 { .. }) {
-            self.endpoints
-                .get(index)
-                .and_then(|endpoint| {
-                    let live = if selected { &self.live } else { &endpoint.live };
-                    live.agent_sidebar.prepared()
-                })
-                .and_then(|prepared| {
-                    let (message, truncated) = prepared.preview(&id)?;
-                    let idle_recap = prepared.agent(&id)?.idle_recap;
-                    Some((message, truncated, idle_recap))
-                })
+        let prepared = if matches!(&agent, Listed::Herdr1 { .. }) {
+            self.endpoints.get(index).and_then(|endpoint| {
+                let live = if selected { &self.live } else { &endpoint.live };
+                live.agent_sidebar.prepared()
+            })
         } else {
             None
         };
+        let preview = prepared.and_then(|prepared| {
+            let (message, truncated) = prepared.preview(&id)?;
+            let idle_recap = prepared.agent(&id)?.idle_recap;
+            Some((message, truncated, idle_recap))
+        });
+        let agent_sidebar = prepared.is_some();
         let spoken = if icon == crate::icons::AgentIcon::Coordinator {
             fl!("sidebar-coordinator-row", row = spoken)
         } else {
@@ -175,6 +174,8 @@ impl SheprdWindow {
         );
         let focused = selected && agent.focused();
         let linked = self.sidebar_agent_linked(index, &id);
+        let fallback_status = (agent_sidebar && preview.is_none())
+            .then(|| SharedString::from(state.as_ref().to_owned()));
         Cell::new(
             rows,
             RowData::Agent(AgentRow {
@@ -184,19 +185,22 @@ impl SheprdWindow {
                 status: agent.status(),
                 place,
                 pane,
-                status_text: self
-                    .config
-                    .sidebar_layout
-                    .agents
-                    .shows_status_text(agent.identity())
-                    .then_some(state),
+                status_text: (!agent_sidebar
+                    && self
+                        .config
+                        .sidebar_layout
+                        .agents
+                        .shows_status_text(agent.identity()))
+                .then_some(state),
                 lines,
+                agent_sidebar,
                 message: preview.map(|(message, _, _)| message),
                 message_truncated: preview.is_some_and(|(_, truncated, _)| truncated),
                 idle_recap: preview.is_some_and(|(_, _, idle_recap)| idle_recap),
                 recap_target: preview
                     .is_some_and(|(_, _, idle_recap)| idle_recap)
                     .then(|| Arc::new((endpoint_id.clone(), id.clone()))),
+                fallback_status,
             }),
             row_cx,
         )
@@ -214,7 +218,11 @@ impl SheprdWindow {
             row.debug_selector(|| format!("agent-{endpoint_id}-{id}"))
         })
         .when(linked, |row| {
-            row.debug_selector(|| format!("linked-agent-{endpoint_id}-{id}"))
+            row.child(crate::sidebar::row::agent_sidebar::linked_marker(
+                "agent",
+                &endpoint_id,
+                &id,
+            ))
         })
         .when_some(menu, |row, menu| {
             row.on_mouse_down(
@@ -229,6 +237,7 @@ impl SheprdWindow {
             crate::sidebar::AgentTarget::Pane(pane) => {
                 if this.open_agent_row(&navigate_endpoint, pane, cx) {
                     this.select_sidebar_agent(&navigate_endpoint, pane);
+                    cx.notify();
                 }
                 window.focus(&this.focus, cx);
             }

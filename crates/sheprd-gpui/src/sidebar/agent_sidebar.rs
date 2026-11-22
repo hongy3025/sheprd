@@ -6,6 +6,7 @@ use sheprd_control_protocol::protocol::app::{
 
 /// The CLI and hosted view share the same connection-fenced projection.
 pub(crate) fn state(view: &SheprdWindow) -> AgentSidebarState {
+    let effective = view.effective_sidebar_target();
     let selected = view
         .sidebar_selection
         .target()
@@ -75,12 +76,14 @@ pub(crate) fn state(view: &SheprdWindow) -> AgentSidebarState {
                                 preview,
                                 idle_recap,
                                 focused: agent.focused,
-                                linked: view.sidebar_selection.matches(
-                                    &endpoint.id,
-                                    endpoint.generation,
-                                    &snapshot.boot_id,
-                                    &agent.workspace_id,
-                                ),
+                                linked: effective.as_ref().is_some_and(|target| {
+                                    target.matches(
+                                        &endpoint.id,
+                                        endpoint.generation,
+                                        &snapshot.boot_id,
+                                        &agent.workspace_id,
+                                    )
+                                }),
                             }
                         })
                         .collect();

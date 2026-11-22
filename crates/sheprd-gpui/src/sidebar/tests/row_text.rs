@@ -149,7 +149,13 @@ fn cells_hand_their_state_and_data_to_the_layout() {
             self.0.borrow_mut().push((row.label.to_owned(), state));
             div()
         }
-        fn agent(&self, row: AgentRow<'_>, state: RowState, _: &RowContext<'_>) -> Div {
+        fn agent(
+            &self,
+            row: AgentRow<'_>,
+            state: RowState,
+            _: &RowContext<'_>,
+            _: Option<&mut gpui::Context<crate::window::SheprdWindow>>,
+        ) -> Div {
             self.0.borrow_mut().push((row.key, state));
             div()
         }
@@ -179,10 +185,11 @@ fn cells_hand_their_state_and_data_to_the_layout() {
             badge: None,
             removing: false,
             status: snapshot.workspaces[0].status,
+            has_agents: true,
             lines: vec![],
             summary: None,
             pane_strip: false,
-            summary_text: None,
+            summary_status: None,
         })
     };
     let _ = Cell::new(&recorder, workspace(), &cx).row();
@@ -198,10 +205,12 @@ fn cells_hand_their_state_and_data_to_the_layout() {
             pane: None,
             status_text: None,
             lines: vec![],
+            agent_sidebar: false,
             message: None,
             message_truncated: false,
             idle_recap: false,
             recap_target: None,
+            fallback_status: None,
         }),
         &cx,
     )

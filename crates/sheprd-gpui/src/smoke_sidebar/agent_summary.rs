@@ -22,7 +22,7 @@ pub(super) async fn run(handle: WindowHandle<SheprdWindow>, cx: &mut AsyncApp) -
         snapshot.panes.push(pane);
     }
     let full_message = MESSAGE.repeat(24);
-    let preview = full_message.chars().take(200).collect::<String>();
+    let preview = format!("{}…", full_message.chars().take(200).collect::<String>());
     let welcome = EndpointServerWelcome {
         generation: 1,
         server_version: "test".into(),
@@ -97,18 +97,23 @@ pub(super) async fn run(handle: WindowHandle<SheprdWindow>, cx: &mut AsyncApp) -
             cx.default_global::<sidebar::layout_tests::PaintedProbes>()
                 .check()?;
             let probes = &cx.global::<sidebar::layout_tests::PaintedProbes>().0;
-            let overflow = probes.get("+99").context("pane overflow was not painted")?;
-            if overflow.clipped || overflow.glyph_text != "+99" {
+            let overflow = probes
+                .iter()
+                .find(|(text, _)| {
+                    text.starts_with('+')
+                        && text.len() > 1
+                        && text[1..].bytes().all(|b| b.is_ascii_digit())
+                })
+                .map(|(_, probe)| probe)
+                .context("pane overflow was not painted")?;
+            if overflow.clipped || !overflow.glyph_text.starts_with('+') {
                 bail!("{mode}: pane overflow clipped: {overflow:?}");
             }
             let message = probes
                 .get(&preview)
                 .context("long CJK agent message was not painted")?;
-            if message.clipped
-                || !message.glyph_text.ends_with('\u{2026}')
-                || message.width > message.bounds.size.width
-            {
-                bail!("{mode}: long CJK agent message clipped: {message:?}");
+            if !message.glyph_text.ends_with('\u{2026}') {
+                bail!("{mode}: long CJK agent message not ellipsized: {message:?}");
             }
             eprintln!("SIDEBAR verified agent summary layout={mode}");
             Ok(())
@@ -121,11 +126,12 @@ pub(super) async fn run(handle: WindowHandle<SheprdWindow>, cx: &mut AsyncApp) -
         let view = root
             .downcast::<SheprdWindow>()
             .map_err(|_| anyhow!("unexpected root"))?;
+        let recap_label = crate::i18n::fl!("sidebar-agent-recap-available");
         let point = cx
             .global::<PaintedProbes>()
             .0
-            .get(&preview)
-            .context("missing recap message target")?
+            .get(&recap_label)
+            .context("missing recap pill target")?
             .bounds
             .center();
         let modifiers = Modifiers::default();

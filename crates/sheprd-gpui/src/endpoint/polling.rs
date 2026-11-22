@@ -243,9 +243,28 @@ impl SheprdWindow {
         }
         let endpoint = &mut self.endpoints[self.selected_endpoint];
         if selected_changed {
+            let old_focus = self
+                .live
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.focused_workspace_id.clone());
             self.live = endpoint.live.clone();
             if !self.live.status.is_connected() {
                 self.local_error = None;
+            }
+            let new_focus = self
+                .live
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.focused_workspace_id.as_deref());
+            if old_focus.is_some()
+                && old_focus.as_deref() != new_focus
+                && self
+                    .sidebar_selection
+                    .target()
+                    .is_some_and(|target| target.endpoint == endpoint.id)
+            {
+                self.sidebar_selection.clear();
             }
         }
         if endpoint.outage().is_some() {

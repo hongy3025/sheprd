@@ -6,7 +6,7 @@
 
 use super::{
     super::{
-        cell::{AgentRow, RowContext, RowLayout, RowState, WorkspaceRow},
+        cell::{AgentRow, FocusBarTarget, RowContext, RowLayout, RowState, WorkspaceRow},
         line_height,
         row::{Elbow, RowBadge, RowKind, RowTree, TokenLook, guide, left_behind, token_column},
         scaled,
@@ -18,6 +18,7 @@ use super::{
 use crate::config::Theme;
 use crate::direction::Logical;
 use crate::i18n::fl;
+use crate::window::SheprdWindow;
 use gpui::{prelude::*, *};
 use sheprd_client::protocol::AgentStatus;
 
@@ -53,6 +54,9 @@ fn card(
         .border_color(rgba(0))
         .when(state.selected, |card| {
             card.border_color(wash(theme.foreground, 0x2e))
+        })
+        .when(!state.selected && state.linked, |card| {
+            card.border_color(wash(theme.foreground, 0x14))
         })
         .row()
         .gap(px(GAP))
@@ -152,6 +156,7 @@ impl RowLayout for Orca {
         });
         let cx = faded.as_ref().unwrap_or(cx);
         let (branch, status, upstream) = (row.branch(), row.status(), row.upstream());
+        let workspace_id = row.workspace.id.as_str();
         let WorkspaceRow {
             label,
             tree,
@@ -161,6 +166,9 @@ impl RowLayout for Orca {
             badge,
             removing,
             lines,
+            summary,
+            pane_strip,
+            summary_status,
             ..
         } = row;
         let (theme, font) = (cx.theme, cx.font);
@@ -174,6 +182,10 @@ impl RowLayout for Orca {
                 cx.look.density.card_indent()
             };
         let width = inner(cx, indent);
+        let strip_budget = (width * 0.42).max(32.).min(width);
+        let strip = summary.filter(|_| pane_strip).and_then(|summary| {
+            super::super::row::agent_sidebar::pane_strip(workspace_id, summary, strip_budget, cx)
+        });
         // Children are named by their branch already; repeating it is noise.
         let branch = branch.filter(|branch| *branch != label);
         let pr = badge.as_ref().and_then(|badge| badge.pr.as_ref());
@@ -201,7 +213,18 @@ impl RowLayout for Orca {
         });
         if !lines.is_empty() {
             let (mark, room) = configured_status(&lines, status, removing, cx);
-            let text = Line::new(width + room, GAP)
+            let total_width = width + room;
+            let status_row = summary_status.as_ref().map(|status| {
+                super::super::row::agent_sidebar::workspace_status_line(
+                    workspace_id,
+                    status,
+                    total_width,
+                    small,
+                    line,
+                    cx,
+                )
+            });
+            let text = Line::new(total_width, GAP)
                 .when_some(worktree, |text, glyph| {
                     text.fixed(dirty_size, parts::first_line(dirty_size, glyph, cx))
                 })
@@ -235,6 +258,9 @@ impl RowLayout for Orca {
                     let mark = parts::dirty(label, dirty_size, theme);
                     text.fixed(dirty_size, parts::first_line(dirty_size, mark, cx))
                 })
+                .when_some(strip, |text, (strip_width, strip)| {
+                    text.fixed(strip_width, parts::first_line(strip_width, strip, cx))
+                })
                 .when_some(pr, |text, pr| {
                     let (width, number) = parts::pr_number(label, pr, small, glyph);
                     text.shrink(width, number.h(px(line)).text_size(px(small)))
@@ -250,8 +276,25 @@ impl RowLayout for Orca {
                 .when(removing, |card| card.opacity(REMOVING_OPACITY))
                 .children(card_guide(label, tree, indent, 5., cx))
                 .children(mark)
-                .child(text.into_div().items_start());
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(text.into_div().items_start())
+                        .children(status_row),
+                );
         }
+        let status_row = summary_status.as_ref().map(|status| {
+            super::super::row::agent_sidebar::workspace_status_line(
+                workspace_id,
+                status,
+                width,
+                small,
+                line,
+                cx,
+            )
+        });
         let title = Line::new(width, GAP)
             .when_some(worktree, |line, glyph| line.fixed(dirty_size, glyph))
             .fill(
@@ -274,6 +317,9 @@ impl RowLayout for Orca {
             .when_some(primary, |line, primary| {
                 let width = (7. * glyph).ceil() + 10.;
                 line.fixed(width, primary.w(px(width)))
+            })
+            .when_some(strip, |line, (strip_width, strip)| {
+                line.fixed(strip_width, strip)
             })
             .when_some(fold, |line, fold| {
                 let size = scaled(font, 14.);
@@ -303,7 +349,7 @@ impl RowLayout for Orca {
                 let (width, number) = parts::pr_number(label, pr, small, glyph);
                 line.shrink(width, number)
             });
-        let padding = if meta { 5. } else { 7. };
+        let padding = if meta || status_row.is_some() { 5. } else { 7. };
         card(label, state, indent, 8., (theme, cx.mark))
             .items_start()
             .py(px(padding))
@@ -321,7 +367,7 @@ impl RowLayout for Orca {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(4.))
+                    .gap(px(3.))
                     .child(title.into_div().h(px(line)))
                     .when(meta, |column| {
                         column.child(
@@ -331,24 +377,72 @@ impl RowLayout for Orca {
                                 .text_size(px(small))
                                 .text_color(rgb(theme.muted)),
                         )
-                    }),
+                    })
+                    .children(status_row),
             )
+    }
+
+    fn focus_bar(&self, target: FocusBarTarget<'_>, cx: &RowContext<'_>) -> Div {
+        let radius = match target {
+            FocusBarTarget::Workspace { .. } => 8.,
+            FocusBarTarget::Agent(_) => 4.,
+        };
+        super::super::row::agent_sidebar::focus_bar(
+            target.selector(),
+            target.tone(),
+            0.,
+            0.,
+            radius,
+            cx.theme,
+        )
     }
 
     fn trunk_below(&self, key: &str, tree: RowTree, cx: &RowContext<'_>) -> Option<Div> {
         super::super::row::trunk_below(key, tree, gutter(cx), cx)
     }
 
-    fn agent(&self, agent: AgentRow<'_>, state: RowState, cx: &RowContext<'_>) -> Div {
+    fn agent(
+        &self,
+        agent: AgentRow<'_>,
+        state: RowState,
+        cx: &RowContext<'_>,
+        window_cx: Option<&mut Context<SheprdWindow>>,
+    ) -> Div {
         let (theme, font) = (cx.theme, cx.font);
         let key = agent.key.as_str();
         let line = line_height(font);
+        let small = (font.size * 0.88).round().max(10.);
         let icon = (line * 0.85).round();
         let color = if state.selected {
             theme.foreground
         } else {
             theme.subtext()
         };
+        let name_color = if agent.agent_sidebar {
+            theme.primary()
+        } else {
+            color
+        };
+        let width = inner(cx, 0.);
+        let status_line_h = super::super::row::agent_sidebar::compact_line_height(small);
+        let inline_header = (agent.lines.is_empty() && agent.agent_sidebar).then(|| {
+            let mark = (small * 1.05).round().max(10.);
+            super::super::row::agent_sidebar::AgentInlineHeader {
+                show_icon: true,
+                icon_size: mark,
+                icon_reserve: mark + 4.,
+                name_selector: format!("name-{key}"),
+            }
+        });
+        let status_row = super::super::row::agent_sidebar::agent_status_line(
+            &agent,
+            inline_header,
+            width,
+            small,
+            status_line_h,
+            cx,
+            window_cx,
+        );
         if !agent.lines.is_empty() {
             let (mark, room) = configured_status(&agent.lines, agent.status, false, cx);
             let column = token_column(
@@ -360,23 +454,82 @@ impl RowLayout for Orca {
                     focused: state.selected,
                     teleported: false,
                 },
-                inner(cx, 0.) - icon - GAP + room,
+                width - icon - GAP + room,
                 cx,
             );
             let icon = parts::first_line(icon, parts::icon(agent.icon.path(), icon, color), cx);
+            let header = div()
+                .row()
+                .items_start()
+                .gap(px(GAP))
+                .child(icon)
+                .child(column);
             return card(key, state, 0., 4., (theme, cx.mark))
                 .py(px(4.))
                 .items_start()
                 .children(mark)
-                .child(icon)
-                .child(column);
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(header)
+                        .children(status_row),
+                );
+        }
+        if let Some(status_row) = status_row {
+            let place = parts::agent_place(agent.place, cx.host);
+            let header = (place.is_some() || agent.pane.is_some()).then(|| {
+                let mut line_items = Line::new(width, GAP);
+                if let Some(place) = place {
+                    line_items = line_items.lead(
+                        div().font_weight(FontWeight::BOLD).text_color(rgb(color)),
+                        place,
+                        glyph_at(font, font.size),
+                        0.5,
+                    );
+                }
+                if let Some(pane) = agent.pane {
+                    line_items = line_items.label(
+                        div()
+                            .debug_selector(|| format!("pane-{key}"))
+                            .text_color(rgb(theme.muted)),
+                        pane,
+                        glyph_at(font, font.size),
+                        0.5,
+                    );
+                }
+                line_items.into_div().h(px(line))
+            });
+            return card(key, state, 0., 4., (theme, cx.mark))
+                .py(px(5.))
+                .items_start()
+                .child({
+                    let column = status_column(parts::status(agent.status, false, cx), cx);
+                    if cx.indicators.centered() {
+                        column.self_center()
+                    } else {
+                        column.h(px(line)).items_center()
+                    }
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .children(header)
+                        .child(status_row),
+                );
         }
         // The agent leads, then its pane, then where it runs, all on one line.
-        let text = Line::new(inner(cx, 0.) - icon - GAP, GAP)
+        let text = Line::new(width - icon - GAP, GAP)
             .lead(
                 div()
                     .debug_selector(|| format!("name-{key}"))
-                    .text_color(rgb(color)),
+                    .when(agent.agent_sidebar, |name| {
+                        name.font_weight(FontWeight::SEMIBOLD)
+                    })
+                    .text_color(rgb(name_color)),
                 agent.name,
                 glyph_at(font, font.size),
                 0.4,

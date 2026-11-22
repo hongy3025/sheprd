@@ -20,6 +20,7 @@ use super::{
 };
 use crate::config::Theme;
 use crate::direction::Logical;
+use crate::window::SheprdWindow;
 use gpui::{prelude::*, *};
 
 pub(in super::super) struct Minimal;
@@ -31,26 +32,38 @@ fn shell(
     state: RowState,
     indent: f32,
     (line, lines): (Line<'_>, Option<usize>),
+    extra: Option<(f32, usize, Div)>,
     cx: &RowContext<'_>,
 ) -> Div {
     let look = cx.look;
-    div()
+    let extra_lines = extra.as_ref().map_or(0, |(_, count, _)| *count);
+    let total_lines = lines.unwrap_or(1) + extra_lines;
+    let row = div()
         .debug_selector(|| format!("row-{key}"))
         .relative()
         .w_full()
         .flex_none()
-        .h(px(look.row_height(
-            line_height(cx.font) * lines.unwrap_or(1) as f32,
-        )))
+        .h(px(
+            look.row_height(line_height(cx.font) * total_lines as f32)
+        ))
         .ps(px(look.content_x() + indent))
-        .row()
-        .items_center()
         .cursor_pointer()
-        .map(|row| look.mark(row, key, (state, cx.mark), cx.theme))
-        .child(
+        .map(|row| look.mark(row, key, (state, cx.mark), cx.theme));
+    match extra {
+        Some((offset, _, extra_line)) => row
+            .flex()
+            .flex_col()
+            .justify_center()
+            .child(
+                line.into_div()
+                    .when(lines.is_some(), |line| line.items_start()),
+            )
+            .child(extra_line.ms(px(offset))),
+        None => row.row().items_center().child(
             line.into_div()
                 .when(lines.is_some(), |line| line.items_start()),
-        )
+        ),
+    }
 }
 
 /// Configured lines after the row's status slot, with the status the config
@@ -103,7 +116,33 @@ impl RowLayout for Minimal {
         let mark = (line_height(cx.font) * 0.75).round();
         let worktree = parts::worktree(row.label, &row.icon, mark);
         let status = row.status();
-        let line = Line::new(cx.look.content_width(cx.width) - indent, density.gap());
+        let row_width = cx.look.content_width(cx.width) - indent;
+        let text_offset = cx.indicators.width(cx.font) + density.gap();
+        let text_width = (row_width - text_offset).max(0.);
+        let strip_budget = (text_width * 0.42).max(32.).min(text_width);
+        let strip = row.summary.filter(|_| row.pane_strip).and_then(|summary| {
+            super::super::row::agent_sidebar::pane_strip(
+                &row.workspace.id,
+                summary,
+                strip_budget,
+                cx,
+            )
+        });
+        let extra = row.summary_status.as_ref().map(|ws_status| {
+            (
+                text_offset,
+                1,
+                super::super::row::agent_sidebar::workspace_status_line(
+                    &row.workspace.id,
+                    ws_status,
+                    text_width,
+                    cx.font.size,
+                    line_height(cx.font),
+                    cx,
+                ),
+            )
+        });
+        let line = Line::new(row_width, density.gap());
         let line = if row.lines.is_empty() {
             line.fixed(
                 cx.indicators.width(cx.font),
@@ -136,6 +175,9 @@ impl RowLayout for Minimal {
             )
         };
         let line = line
+            .when_some(strip, |line, (strip_width, strip)| {
+                line.fixed(strip_width, strip)
+            })
             .when(muted, |line| {
                 line.fixed(
                     mark,
@@ -178,7 +220,7 @@ impl RowLayout for Minimal {
         // The first line sits where Herdr's rows put it, so the tick does too.
         let look = cx.look;
         let elbow = Elbow::At(look.row_padding() + look.spacing() / 2. + line_height(cx.font) / 2.);
-        shell(row.label, state, indent, (line, lines), cx).children(guide(
+        shell(row.label, state, indent, (line, lines), extra, cx).children(guide(
             row.label,
             row.tree,
             tree_gutter(cx),
@@ -191,15 +233,57 @@ impl RowLayout for Minimal {
         super::super::row::trunk_below(key, tree, tree_gutter(cx), cx)
     }
 
-    fn agent(&self, agent: AgentRow<'_>, state: RowState, cx: &RowContext<'_>) -> Div {
+    fn agent(
+        &self,
+        agent: AgentRow<'_>,
+        state: RowState,
+        cx: &RowContext<'_>,
+        window_cx: Option<&mut Context<SheprdWindow>>,
+    ) -> Div {
         let (theme, font) = (cx.theme, cx.font);
         let gap = cx.look.density.gap();
         let kind = RowKind::Agent(agent.icon);
         let (color, _, _) = row_text(kind, state.selected, theme);
+        let name_color = if agent.agent_sidebar {
+            theme.primary()
+        } else {
+            color
+        };
         let size = scaled(font, 12.);
-        let line = Line::new(cx.look.content_width(cx.width), gap);
+        let row_width = cx.look.content_width(cx.width);
+        let text_offset = cx.indicators.width(font) + gap;
+        let text_width = (row_width - text_offset).max(0.);
+        let place = parts::agent_place(agent.place, cx.host);
+        let inline_agent = agent.lines.is_empty()
+            && agent.agent_sidebar
+            && (place.is_some() || agent.pane.is_some());
+        let inline_header =
+            inline_agent.then(|| super::super::row::agent_sidebar::AgentInlineHeader {
+                show_icon: true,
+                icon_size: size,
+                icon_reserve: size + 4.,
+                name_selector: format!("name-{}", agent.key),
+            });
+        let extra = super::super::row::agent_sidebar::agent_status_line(
+            &agent,
+            inline_header,
+            text_width,
+            font.size,
+            line_height(font),
+            cx,
+            window_cx,
+        )
+        .map(|line| {
+            (
+                text_offset,
+                super::super::row::agent_sidebar::AGENT_STATUS_LINES,
+                line,
+            )
+        });
+        let line = Line::new(row_width, gap);
         if !agent.lines.is_empty() {
-            let icon = parts::first_line(size, parts::icon(agent.icon.path(), size, color), cx);
+            let icon =
+                parts::first_line(size, parts::icon(agent.icon.path(), size, name_color), cx);
             let lines = agent.lines.len();
             let line = configured(
                 &agent.key,
@@ -217,16 +301,43 @@ impl RowLayout for Minimal {
                 |line| line.fixed(size, icon),
                 cx,
             );
-            return shell(&agent.key, state, 0., (line, Some(lines)), cx);
+            return shell(&agent.key, state, 0., (line, Some(lines)), extra, cx);
+        }
+        if inline_agent && extra.is_some() {
+            let line = line
+                .fixed(
+                    cx.indicators.width(font),
+                    parts::status(agent.status, false, cx),
+                )
+                .when_some(place, |line, place| {
+                    line.lead(
+                        div().font_weight(FontWeight::BOLD).text_color(rgb(color)),
+                        place,
+                        parts::glyph_at(font, font.size),
+                        0.5,
+                    )
+                })
+                .when_some(agent.pane, |line, pane| {
+                    line.label(
+                        div()
+                            .debug_selector(|| format!("pane-{}", agent.key))
+                            .text_color(rgb(theme.muted)),
+                        pane,
+                        parts::glyph_at(font, font.size),
+                        0.5,
+                    )
+                });
+            return shell(&agent.key, state, 0., (line, None), extra, cx);
         }
         let line = line
             .fixed(
                 cx.indicators.width(font),
                 parts::status(agent.status, false, cx),
             )
-            .fixed(size, parts::icon(agent.icon.path(), size, color))
+            .fixed(size, parts::icon(agent.icon.path(), size, name_color))
             .lead(
-                name(&agent.key, kind, state, false, theme),
+                name(&agent.key, kind, state, false, theme)
+                    .when(agent.agent_sidebar, |n| n.text_color(rgb(theme.primary()))),
                 agent.name,
                 parts::glyph_at(font, font.size),
                 0.4,
@@ -251,6 +362,6 @@ impl RowLayout for Minimal {
                     0.3,
                 )
             });
-        shell(&agent.key, state, 0., (line, None), cx)
+        shell(&agent.key, state, 0., (line, None), extra, cx)
     }
 }

@@ -7,9 +7,10 @@ use super::super::{
     agents::agent_labels,
     cell::{AgentRow, RowContext, RowLayout, RowState, WorkspaceRow},
     line_height,
-    row::{RowIcon, RowKind, RowTree},
+    row::{RowExtras, RowIcon, RowKind, RowTree},
     scaled,
 };
+use crate::window::SheprdWindow;
 use gpui::{prelude::*, *};
 
 pub(in super::super) struct Herdr;
@@ -24,6 +25,7 @@ impl RowLayout for Herdr {
             row.lines.len().max(badge_lines).max(1)
         };
         let (branch, status, upstream) = (row.branch().unwrap_or(""), row.status(), row.upstream());
+        let workspace_id = row.workspace.id.as_str();
         let WorkspaceRow {
             label,
             tree,
@@ -33,6 +35,9 @@ impl RowLayout for Herdr {
             badge,
             removing,
             lines,
+            summary,
+            pane_strip,
+            summary_status,
             ..
         } = row;
         let arrow = fold.map(|fold| {
@@ -58,7 +63,15 @@ impl RowLayout for Herdr {
             upstream,
             None,
             &lines,
+            RowExtras {
+                workspace_id: Some(workspace_id),
+                summary,
+                pane_strip,
+                workspace_status: summary_status.as_ref(),
+                agent: None,
+            },
             cx,
+            None,
         )
     }
 
@@ -67,7 +80,13 @@ impl RowLayout for Herdr {
         super::super::row::trunk_below(key, tree, gutter, cx)
     }
 
-    fn agent(&self, agent: AgentRow<'_>, state: RowState, cx: &RowContext<'_>) -> Div {
+    fn agent(
+        &self,
+        agent: AgentRow<'_>,
+        state: RowState,
+        cx: &RowContext<'_>,
+        window_cx: Option<&mut Context<SheprdWindow>>,
+    ) -> Div {
         let (name, detail) = agent_labels(agent.name, agent.place, cx.host, agent.pane.as_deref());
         super::super::row::row(
             &agent.key,
@@ -86,7 +105,12 @@ impl RowLayout for Herdr {
             None,
             agent.status_text.as_deref(),
             &agent.lines,
+            RowExtras {
+                agent: Some(&agent),
+                ..RowExtras::default()
+            },
             cx,
+            window_cx,
         )
     }
 }

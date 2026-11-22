@@ -68,6 +68,14 @@ pub(super) struct Fold {
     pub(super) toggle: Box<ClickHandler>,
 }
 
+/// The winning agent's status line shown inside an expanded workspace row.
+pub(super) struct WorkspaceStatus<'a> {
+    pub(super) agent: &'a str,
+    pub(super) text: gpui::SharedString,
+    pub(super) truncated: bool,
+    pub(super) is_message: bool,
+}
+
 pub(super) struct WorkspaceRow<'a> {
     pub(super) workspace: &'a Workspace,
     /// What the row is called: a child's branch unless the user renamed it.
@@ -83,12 +91,14 @@ pub(super) struct WorkspaceRow<'a> {
     pub(super) removing: bool,
     /// Status the row shows. A collapsed group's head takes its most urgent member.
     pub(super) status: AgentStatus,
+    /// Whether this workspace has at least one associated agent.
+    pub(super) has_agents: bool,
     /// Daemon token rows, painted in the layout's own frame. Empty keeps its native lines.
     pub(super) lines: Vec<Vec<super::tokens::ResolvedToken>>,
     /// Prepared fork-only pane state; `pane_strip` controls its display.
     pub(super) summary: Option<&'a super::summary::WorkspaceSummary>,
     pub(super) pane_strip: bool,
-    pub(super) summary_text: Option<gpui::SharedString>,
+    pub(super) summary_status: Option<WorkspaceStatus<'a>>,
 }
 
 impl<'a> WorkspaceRow<'a> {
@@ -129,11 +139,17 @@ pub(super) struct AgentRow<'a> {
     pub(super) status_text: Option<Cow<'a, str>>,
     /// Daemon token rows, painted in the layout's own frame. Empty keeps its native lines.
     pub(super) lines: Vec<Vec<super::tokens::ResolvedToken>>,
+    /// Whether the agent belongs to a capable Herdr 1 host with agent sidebar
+    /// presentation enabled.
+    pub(super) agent_sidebar: bool,
     /// Bounded preview of the matching pane's last agent message.
     pub(super) message: Option<&'a str>,
     pub(super) message_truncated: bool,
     pub(super) idle_recap: bool,
     pub(super) recap_target: Option<Arc<(String, String)>>,
+    /// Localized status label shown on the status line when a capable host has
+    /// no live message for this pane.
+    pub(super) fallback_status: Option<gpui::SharedString>,
 }
 
 /// What a row shows.
@@ -159,13 +175,70 @@ pub(super) struct RowState {
     pub(super) lift: RowLift,
 }
 
+/// Color tone of the leading activation bar on a focused sidebar row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::sidebar) enum FocusBarTone {
+    /// Focused agent row, or focused workspace with at least one agent.
+    Active,
+    /// Focused workspace with no associated agents.
+    Neutral,
+}
+
+/// Which focused sidebar row carries the leading activation bar.
+#[derive(Clone, Copy)]
+pub(super) enum FocusBarTarget<'a> {
+    Workspace { id: &'a str, tone: FocusBarTone },
+    Agent(&'a str),
+}
+
+impl FocusBarTarget<'_> {
+    pub(super) fn selector(self) -> String {
+        match self {
+            Self::Workspace {
+                id,
+                tone: FocusBarTone::Active,
+            } => format!("workspace-focus-bar-{id}"),
+            Self::Workspace {
+                id,
+                tone: FocusBarTone::Neutral,
+            } => format!("workspace-focus-bar-neutral-{id}"),
+            Self::Agent(pane_id) => format!("agent-focus-bar-{pane_id}"),
+        }
+    }
+
+    pub(super) fn tone(self) -> FocusBarTone {
+        match self {
+            Self::Workspace { tone, .. } => tone,
+            Self::Agent(_) => FocusBarTone::Active,
+        }
+    }
+}
+
 /// Arranges a row's content and marks its state. Implementations are
 /// stateless and read only what they are given, so render stays free of I/O
 /// and allocation beyond the elements themselves. How a dragged row looks is
 /// part of the layout too: `state.lift` says which row is carried.
 pub(super) trait RowLayout {
     fn workspace(&self, row: WorkspaceRow<'_>, state: RowState, cx: &RowContext<'_>) -> Div;
-    fn agent(&self, row: AgentRow<'_>, state: RowState, cx: &RowContext<'_>) -> Div;
+    fn agent(
+        &self,
+        row: AgentRow<'_>,
+        state: RowState,
+        cx: &RowContext<'_>,
+        window_cx: Option<&mut Context<SheprdWindow>>,
+    ) -> Div;
+    /// Leading activation bar for the focused workspace or agent row, shaped
+    /// to match the layout's highlight frame.
+    fn focus_bar(&self, target: FocusBarTarget<'_>, cx: &RowContext<'_>) -> Div {
+        super::row::agent_sidebar::focus_bar(
+            target.selector(),
+            target.tone(),
+            cx.look.inset(),
+            cx.look.spacing() / 2.,
+            cx.look.density.radius,
+            cx.theme,
+        )
+    }
     /// What carries a worktree child's tree guide on through the lines under
     /// its row (note, ports) to the next sibling. Only layouts that draw
     /// guides have one to continue.
@@ -220,6 +293,7 @@ impl<'a> Cell<'a> {
     /// The row element, laid out for the state the cell was given. The rail
     /// style's bar is added here, on the row's leading edge, so every layout
     /// shows it in the same place without drawing it itself.
+    #[cfg(test)]
     pub(super) fn row(self) -> Div {
         self.render(None)
     }
@@ -228,38 +302,52 @@ impl<'a> Cell<'a> {
         self.render(Some(cx))
     }
 
-    fn render(self, mut window_cx: Option<&mut Context<SheprdWindow>>) -> Div {
-        let (row, rail, extra) = match self.data {
+    fn render(self, window_cx: Option<&mut Context<SheprdWindow>>) -> Div {
+        let (row, rail, focus_bar) = match self.data {
             RowData::Workspace(row) => {
                 let rail = (!row.removing)
                     .then(|| self.cx.indicators.rail(row.status, row.label))
                     .flatten();
-                let extra = super::row::agent_sidebar::workspace(&row, self.layout, self.cx);
-                (self.layout.workspace(row, self.state, self.cx), rail, extra)
+                let focus_bar = (self.state.selected && !row.removing).then(|| {
+                    let tone = if row.has_agents {
+                        FocusBarTone::Active
+                    } else {
+                        FocusBarTone::Neutral
+                    };
+                    self.layout.focus_bar(
+                        FocusBarTarget::Workspace {
+                            id: &row.workspace.id,
+                            tone,
+                        },
+                        self.cx,
+                    )
+                });
+                (
+                    self.layout.workspace(row, self.state, self.cx),
+                    rail,
+                    focus_bar,
+                )
             }
             RowData::Agent(row) => {
                 let rail = self.cx.indicators.rail(row.status, &row.key);
-                let extra = super::row::agent_sidebar::agent_message(
-                    &row,
-                    self.cx,
-                    window_cx.as_deref_mut(),
-                );
-                (self.layout.agent(row, self.state, self.cx), rail, extra)
+                let focus_bar = self.state.selected.then(|| {
+                    let pane_id = row.key.strip_prefix("agent-").unwrap_or(&row.key);
+                    self.layout
+                        .focus_bar(FocusBarTarget::Agent(pane_id), self.cx)
+                });
+                (
+                    self.layout.agent(row, self.state, self.cx, window_cx),
+                    rail,
+                    focus_bar,
+                )
             }
         };
         let row = match rail {
             Some(rail) => row.relative().child(rail),
             None => row,
         };
-        match extra {
-            Some(extra) => gpui::div()
-                .flex()
-                .flex_col()
-                .w_full()
-                .min_w_0()
-                .flex_none()
-                .child(row)
-                .child(extra),
+        match focus_bar {
+            Some(bar) => row.relative().child(bar),
             None => row,
         }
     }

@@ -209,6 +209,33 @@ pub(crate) struct PaintedText {
 // inspect the glyph stream used by paint, not just the cached backing string.
 pub(crate) struct ProbeText(pub SharedString);
 
+pub(in crate::sidebar) fn record_wrapped_probe(
+    key: String,
+    bounds: Bounds<Pixels>,
+    mask: Bounds<Pixels>,
+    rendered: String,
+    width: Pixels,
+    clipped: bool,
+    cx: &mut App,
+) {
+    cx.default_global::<TextProbes>()
+        .0
+        .insert(key.clone(), (bounds, rendered.clone(), width));
+    if cx.has_global::<PaintedProbes>() {
+        cx.default_global::<PaintedProbes>().record(
+            key,
+            Ok(PaintedText {
+                bounds,
+                mask,
+                cached: rendered.clone(),
+                glyph_text: rendered,
+                width,
+                clipped,
+            }),
+        );
+    }
+}
+
 impl IntoElement for ProbeText {
     type Element = Self;
     fn into_element(self) -> Self {

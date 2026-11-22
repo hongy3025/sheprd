@@ -13,6 +13,7 @@ use super::{
 };
 use crate::config::{FontConfig, Theme};
 use crate::direction::Logical;
+use crate::window::SheprdWindow;
 use gpui::{prelude::*, *};
 use sheprd_client::protocol::AgentStatus;
 use std::sync::Arc;
@@ -21,6 +22,7 @@ use unicode_width::UnicodeWidthStr;
 pub(super) mod agent_sidebar;
 mod badge;
 mod configured;
+mod wrapped_status;
 
 pub(crate) use badge::compact;
 pub(super) use badge::{Counts, PrBadge, RowBadge, Upstream};
@@ -418,6 +420,16 @@ pub(super) fn removing_dot(selector: &'static str, font: &FontConfig, theme: &Th
         )
 }
 
+/// Optional fork-only agent sidebar additions rendered inside a [`row`].
+#[derive(Default)]
+pub(super) struct RowExtras<'a> {
+    pub(super) workspace_id: Option<&'a str>,
+    pub(super) summary: Option<&'a super::summary::WorkspaceSummary>,
+    pub(super) pane_strip: bool,
+    pub(super) workspace_status: Option<&'a super::cell::WorkspaceStatus<'a>>,
+    pub(super) agent: Option<&'a super::cell::AgentRow<'a>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn row(
     // Rows are probed by key, not by label: an agent names its workspace, which
@@ -441,7 +453,9 @@ pub(super) fn row(
     // color so a status reads at a glance, not only by hue.
     status_text: Option<&str>,
     lines: &[Vec<ResolvedToken>],
+    extras: RowExtras<'_>,
     cx: &RowContext<'_>,
+    window_cx: Option<&mut Context<SheprdWindow>>,
 ) -> Div {
     let (font, theme, look, width) = (cx.font, cx.theme, cx.look, cx.width);
     let focused = state.selected;
@@ -470,7 +484,17 @@ pub(super) fn row(
         RowKind::Workspace if tree == RowTree::None => layout.workspace_details(),
         RowKind::Workspace => layout.child_details(),
     };
-    let (name_color, weight, detail_color) = row_text(kind, focused, theme);
+    let (base_name_color, weight, base_detail_color) = row_text(kind, focused, theme);
+    let agent_accent = extras.agent.is_some_and(|agent| agent.agent_sidebar);
+    let (name_color, detail_color) = if agent_accent {
+        if detail.is_empty() {
+            (theme.primary(), base_detail_color)
+        } else {
+            (base_name_color, theme.primary())
+        }
+    } else {
+        (base_name_color, base_detail_color)
+    };
     let name_color = if teleported {
         left_behind(name_color, theme)
     } else {
@@ -552,8 +576,64 @@ pub(super) fn row(
     } else {
         0.
     };
-    let label_width = (available - pr_reserve - status_reserve - upstream_reserve).max(0.);
+    let strip_budget = ((available - pr_reserve - status_reserve - upstream_reserve) * 0.42)
+        .max(32.)
+        .min((available - pr_reserve - status_reserve - upstream_reserve - gap).max(0.));
+    let pane_strip = extras
+        .workspace_id
+        .zip(extras.summary.filter(|_| extras.pane_strip))
+        .and_then(|(ws_id, summary)| agent_sidebar::pane_strip(ws_id, summary, strip_budget, cx));
+    let strip_reserve = pane_strip.as_ref().map_or(0., |(w, _)| *w + gap);
+    let label_width =
+        (available - pr_reserve - status_reserve - upstream_reserve - strip_reserve).max(0.);
     let detail_limit = label_width.min((available - counts_reserve).max(0.));
+    let (agent_size, agent_reserve) = agent_icon_size(font);
+    let inline_agent = !configured
+        && extras.agent.is_some_and(|a| {
+            a.agent_sidebar && (a.message.is_some() || a.fallback_status.is_some())
+        });
+    let inline_agent_detail = inline_agent && !detail.is_empty();
+    let inline_agent_orphan = inline_agent && detail.is_empty();
+    let show_detail = show_detail && !inline_agent_detail;
+    let (bottom_line, extra_lines) =
+        if let (Some(ws_id), Some(ws_status)) = (extras.workspace_id, extras.workspace_status) {
+            (
+                Some(agent_sidebar::workspace_status_line(
+                    ws_id,
+                    ws_status,
+                    available,
+                    font.size,
+                    line_height(font),
+                    cx,
+                )),
+                1.,
+            )
+        } else if let Some(agent) = extras.agent {
+            let header = inline_agent.then(|| agent_sidebar::AgentInlineHeader {
+                show_icon: true,
+                icon_size: agent_size,
+                icon_reserve: agent_reserve,
+                name_selector: if detail.is_empty() {
+                    format!("name-{key}")
+                } else {
+                    format!("detail-{key}")
+                },
+            });
+            match agent_sidebar::agent_status_line(
+                agent,
+                header,
+                available,
+                font.size,
+                line_height(font),
+                cx,
+                window_cx,
+            ) {
+                Some(line) => (Some(line), agent_sidebar::AGENT_STATUS_LINES as f32),
+                None => (None, 0.),
+            }
+        } else {
+            (None, 0.)
+        };
     let agent_icon = match kind {
         RowKind::Agent(icon) => Some(icon),
         RowKind::Workspace => None,
@@ -562,19 +642,174 @@ pub(super) fn row(
     // its location. Reserve the same fixed icon + gap on whichever line owns it.
     let agent_first = agent_icon.filter(|_| detail.is_empty());
     let agent_detail = agent_icon.filter(|_| !detail.is_empty());
-    let (agent_size, agent_reserve) = agent_icon_size(font);
     let name_reserve = icon_reserve + agent_first.map_or(0., |_| agent_reserve);
+    let main_column = div()
+        .flex()
+        .flex_col()
+        // Avoid zero-basis measurement: GPUI 0.2.2 mutates text run
+        // lengths when truncating and reuses them on wider measurements.
+        .w(px(label_width))
+        .flex_none()
+        .overflow_hidden()
+        .debug_selector(|| format!("column-{key}"))
+        .map(|column| {
+            if configured {
+                return configured_lines(
+                    column,
+                    key,
+                    lines,
+                    TokenLook {
+                        kind,
+                        status,
+                        focused,
+                        teleported,
+                    },
+                    (label_width, detail_limit),
+                    workspace_icon,
+                    cx,
+                );
+            }
+            column
+                .child(
+                    div()
+                        .relative()
+                        .w(px(label_width))
+                        .h(px(line_height(font)))
+                        .when_some(agent_first, |line, icon| {
+                            line.child(agent_mark(key, icon, agent_size, name_color, font))
+                        })
+                        .when(workspace_icon.draws(), |title| {
+                            title.child(workspace_icon.slot(key, font, muted))
+                        })
+                        .child(
+                            name_line(
+                                name,
+                                (name_color, weight, theme.muted),
+                                (label_width - name_reserve).max(0.),
+                                font,
+                            )
+                            .debug_selector(|| format!("name-{key}"))
+                            .ms(px(name_reserve.min(label_width))),
+                        ),
+                )
+                .when(show_detail, |column| {
+                    let detail_x = agent_detail.map_or(0., |_| agent_reserve.min(detail_limit));
+                    let room = (detail_limit - detail_x).max(0.);
+                    column.child(
+                        div()
+                            .relative()
+                            .w(px(detail_limit))
+                            .h(px(line_height(font)))
+                            .when_some(agent_detail, |line, icon| {
+                                line.child(agent_mark(key, icon, agent_size, detail_color, font))
+                            })
+                            .when(upstream_inline.is_none(), |line| {
+                                line.child(
+                                    div()
+                                        .debug_selector(|| format!("detail-{key}"))
+                                        .ms(px(detail_x))
+                                        .w(px(room))
+                                        .truncate()
+                                        .when(agent_accent, |part| {
+                                            part.font_weight(FontWeight::SEMIBOLD)
+                                        })
+                                        .text_color(rgb(detail_color))
+                                        .child(label_text(detail)),
+                                )
+                            })
+                            .when_some(upstream_inline, |line, upstream| {
+                                line.child(
+                                    div()
+                                        .ms(px(detail_x))
+                                        .w(px(room))
+                                        .flex()
+                                        .items_center()
+                                        .overflow_hidden()
+                                        .child(
+                                            div()
+                                                .debug_selector(|| format!("detail-{key}"))
+                                                .min_w_0()
+                                                .flex_shrink(1.)
+                                                .truncate()
+                                                .text_color(rgb(detail_color))
+                                                .child(label_text(detail)),
+                                        )
+                                        .when(!detail.is_empty(), |line| line.gap(px(glyph)))
+                                        .child(upstream.inline_element(key, glyph, theme)),
+                                )
+                            }),
+                    )
+                })
+        });
+    let (inline_badge, hanging_badge) = match badge {
+        Some(badge) if badge_first >= badge_width => (
+            Some(badge.element(key, badge_width, font, theme, &layout)),
+            None,
+        ),
+        Some(badge) => (
+            // Only the first line holds its place in the flow; the wider counts
+            // line hangs at the outer row's edge, beside the shortened detail line.
+            Some(div().w(px(badge_first)).flex_none()),
+            Some(
+                badge
+                    .element(key, badge_width, font, theme, &layout)
+                    .absolute()
+                    .top(px(content_top))
+                    .inset_e(px(content_x)),
+            ),
+        ),
+        None => (None, None),
+    };
+    let body = div()
+        .w(px(available + arrow_reserve))
+        .flex_none()
+        .row()
+        .items_start()
+        .gap(px(gap))
+        .child(main_column)
+        .when_some(pane_strip, |row, (_, strip)| row.child(strip))
+        .when_some(status_text, |row, text| {
+            row.child(
+                div()
+                    .debug_selector(|| format!("status-{key}"))
+                    .w(px(status_width))
+                    .flex_none()
+                    .h(px(line_height(font)))
+                    .row()
+                    .items_center()
+                    .overflow_hidden()
+                    .text_color(rgb(status_color))
+                    .child(div().w(px(status_width)).truncate().child(label_text(text))),
+            )
+        })
+        .when_some(upstream_trailing, |row, upstream| {
+            row.child(
+                div()
+                    .w(px(upstream_width))
+                    .flex_none()
+                    .h(px(line_height(font)))
+                    .row()
+                    .items_center()
+                    .overflow_hidden()
+                    .child(upstream.element(key, glyph, theme)),
+            )
+        })
+        // The collapse column comes first so the badge can hug the row's edge.
+        .when_some(arrow, |row, arrow| row.child(arrow))
+        .children(inline_badge);
     div()
         .debug_selector(|| format!("row-{key}"))
         .h(px(look.row_height(
             line_height(font)
-                * if configured {
+                * (if configured {
                     text_lines as f32
+                } else if inline_agent_orphan {
+                    0.
                 } else if show_detail {
                     2.
                 } else {
                     1.
-                },
+                } + extra_lines),
         )))
         .w_full()
         .min_w_0()
@@ -617,154 +852,20 @@ pub(super) fn row(
                 .when(centered, |slot| slot.mt_0().self_center()),
             )
         })
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                // Avoid zero-basis measurement: GPUI 0.2.2 mutates text run
-                // lengths when truncating and reuses them on wider measurements.
-                .w(px(label_width))
-                .flex_none()
-                .overflow_hidden()
-                .debug_selector(|| format!("column-{key}"))
-                .map(|column| {
-                    if configured {
-                        return configured_lines(
-                            column,
-                            key,
-                            lines,
-                            TokenLook {
-                                kind,
-                                status,
-                                focused,
-                                teleported,
-                            },
-                            (label_width, detail_limit),
-                            workspace_icon,
-                            cx,
-                        );
-                    }
-                    column
-                        .child(
-                            div()
-                                .relative()
-                                .w(px(label_width))
-                                .h(px(line_height(font)))
-                                .when_some(agent_first, |line, icon| {
-                                    line.child(agent_mark(key, icon, agent_size, name_color, font))
-                                })
-                                .when(workspace_icon.draws(), |title| {
-                                    title.child(workspace_icon.slot(key, font, muted))
-                                })
-                                .child(
-                                    name_line(
-                                        name,
-                                        (name_color, weight, theme.muted),
-                                        (label_width - name_reserve).max(0.),
-                                        font,
-                                    )
-                                    .debug_selector(|| format!("name-{key}"))
-                                    .ms(px(name_reserve.min(label_width))),
-                                ),
-                        )
-                        .when(show_detail, |column| {
-                            let detail_x =
-                                agent_detail.map_or(0., |_| agent_reserve.min(detail_limit));
-                            let room = (detail_limit - detail_x).max(0.);
-                            column.child(
-                                div()
-                                    .relative()
-                                    .w(px(detail_limit))
-                                    .h(px(line_height(font)))
-                                    .when_some(agent_detail, |line, icon| {
-                                        line.child(agent_mark(
-                                            key,
-                                            icon,
-                                            agent_size,
-                                            detail_color,
-                                            font,
-                                        ))
-                                    })
-                                    .when(upstream_inline.is_none(), |line| {
-                                        line.child(
-                                            div()
-                                                .debug_selector(|| format!("detail-{key}"))
-                                                .ms(px(detail_x))
-                                                .w(px(room))
-                                                .truncate()
-                                                .text_color(rgb(detail_color))
-                                                .child(label_text(detail)),
-                                        )
-                                    })
-                                    .when_some(upstream_inline, |line, upstream| {
-                                        line.child(
-                                            div()
-                                                .ms(px(detail_x))
-                                                .w(px(room))
-                                                .flex()
-                                                .items_center()
-                                                .overflow_hidden()
-                                                .child(
-                                                    div()
-                                                        .debug_selector(|| format!("detail-{key}"))
-                                                        .min_w_0()
-                                                        .flex_shrink(1.)
-                                                        .truncate()
-                                                        .text_color(rgb(detail_color))
-                                                        .child(label_text(detail)),
-                                                )
-                                                .when(!detail.is_empty(), |line| {
-                                                    line.gap(px(glyph))
-                                                })
-                                                .child(upstream.inline_element(key, glyph, theme)),
-                                        )
-                                    }),
-                            )
-                        })
-                }),
-        )
-        .when_some(status_text, |row, text| {
-            row.child(
+        .map(|row| match bottom_line {
+            Some(bottom) if inline_agent_orphan => row.child(bottom),
+            Some(bottom) => row.child(
                 div()
-                    .debug_selector(|| format!("status-{key}"))
-                    .w(px(status_width))
+                    .flex()
+                    .flex_col()
+                    .w(px(available + arrow_reserve))
                     .flex_none()
-                    .h(px(line_height(font)))
-                    .row()
-                    .items_center()
-                    .overflow_hidden()
-                    .text_color(rgb(status_color))
-                    .child(div().w(px(status_width)).truncate().child(label_text(text))),
-            )
+                    .child(body)
+                    .child(bottom),
+            ),
+            None => row.child(body),
         })
-        .when_some(upstream_trailing, |row, upstream| {
-            row.child(
-                div()
-                    .w(px(upstream_width))
-                    .flex_none()
-                    .h(px(line_height(font)))
-                    .row()
-                    .items_center()
-                    .overflow_hidden()
-                    .child(upstream.element(key, glyph, theme)),
-            )
-        })
-        // The collapse column comes first so the badge can hug the row's edge.
-        .when_some(arrow, |row, arrow| row.child(arrow))
-        .when_some(badge, |row, badge| {
-            let element = badge.element(key, badge_width, font, theme, &layout);
-            if badge_first >= badge_width {
-                return row.child(element);
-            }
-            // Only the first line holds its place in the flow; the wider counts
-            // line hangs at the row's edge, beside the shortened detail line.
-            row.child(div().w(px(badge_first)).flex_none()).child(
-                element
-                    .absolute()
-                    .top(px(content_top))
-                    .inset_e(px(content_x)),
-            )
-        })
+        .children(hanging_badge)
 }
 
 /// An agent's icon and the room it takes before the name beside it.

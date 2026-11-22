@@ -1,260 +1,552 @@
-use super::super::cell::{AgentRow, RowContext, RowLayout, WorkspaceRow};
-use super::{ICON_RESERVE, RowIcon, RowTree};
-use crate::direction::Logical;
-use crate::i18n::fl;
-use crate::window::SheprdWindow;
+use super::super::{
+    cell::{AgentRow, FocusBarTone, RowContext, WorkspaceStatus},
+    summary::WorkspaceSummary,
+};
+use super::wrapped_status::WrappedStatusText;
+use crate::{direction::Logical, i18n::fl, window::SheprdWindow};
 use gpui::{prelude::*, *};
+use sheprd_client::protocol::AgentStatus;
+use std::borrow::Cow;
 use unicode_width::UnicodeWidthStr;
 
-pub(in crate::sidebar) fn workspace(
-    row: &WorkspaceRow<'_>,
-    layout: &dyn RowLayout,
+/// Maximum individual pane dots shown inline before collapsing into `+N`.
+const MAX_VISIBLE_DOTS: usize = 6;
+/// Width of the focused agent's leading activation bar.
+const FOCUS_BAR_WIDTH: f32 = 3.;
+/// Fixed line count reserved for an agent row's wrapped status text.
+pub(in crate::sidebar) const AGENT_STATUS_LINES: usize = 2;
+
+/// Line height tailored for a secondary status line at `font_size`.
+pub(in crate::sidebar) fn compact_line_height(font_size: f32) -> f32 {
+    (font_size * 1.4).round().max(font_size + 3.)
+}
+
+/// Zero-layout probe overlay marking a row as linked without replacing its own
+/// debug selector.
+pub(in crate::sidebar) fn linked_marker(kind: &str, endpoint: &str, id: &str) -> Div {
+    let selector = format!("linked-{kind}-{endpoint}-{id}");
+    div().debug_selector(move || selector).absolute().inset_0()
+}
+
+/// Leading vertical accent bar on the focused workspace or agent row: theme
+/// success green when tied to an agent, muted gray for a plain workspace with
+/// no associated agents.
+pub(in crate::sidebar) fn focus_bar(
+    selector: String,
+    tone: FocusBarTone,
+    inset_s: f32,
+    vertical_inset: f32,
+    radius: f32,
+    theme: &crate::config::Theme,
+) -> Div {
+    let color = match tone {
+        FocusBarTone::Active => theme.ink(theme.palette[2]),
+        FocusBarTone::Neutral => theme.ink(theme.muted),
+    };
+    div()
+        .debug_selector(move || selector)
+        .absolute()
+        .inset_s(px(inset_s))
+        .top(px(vertical_inset))
+        .bottom(px(vertical_inset))
+        .w(px(FOCUS_BAR_WIDTH))
+        .when(radius > 0., |bar| bar.rounded_s(px(radius)))
+        .bg(rgb(color))
+}
+
+/// Herdr's `pane_strip` always draws panes with the symbol set (`×`, `◐`, `✓`,
+/// `○`, `·`), independent of the workspace row's leading `status_icons` style.
+fn pane_symbol_asset(status: AgentStatus) -> (&'static str, &'static str) {
+    let name = match status {
+        AgentStatus::Blocked => "blocked",
+        AgentStatus::Working => "working",
+        AgentStatus::Done => "done",
+        AgentStatus::Idle => "idle",
+        AgentStatus::Unknown => "unknown",
+    };
+    let path = crate::icons::status_icon(crate::config::StatusIcons::Tiles, status)
+        .unwrap_or("icons/status-mark-unknown.svg");
+    (name, path)
+}
+
+/// Compact inline pane strip (tab badge when `>= 2` tabs, plus pane status
+/// symbols when `>= 2` panes) sized to fit within `max_width` on a workspace's
+/// first line.
+pub(in crate::sidebar) fn pane_strip(
+    workspace_id: &str,
+    summary: &WorkspaceSummary,
+    max_width: f32,
     cx: &RowContext<'_>,
-) -> Option<Div> {
-    let summary = row.summary.filter(|_| row.pane_strip);
-    let status_text = row.summary_text.as_ref();
-    let status_label = status_text.map(AsRef::as_ref);
-    if summary.is_none() && status_label.is_none() {
+) -> Option<(f32, Div)> {
+    let show_tabs = summary.tab_count >= 2;
+    let show_dots = summary.pane_dots.len() >= 2;
+    if (!show_tabs && !show_dots) || max_width <= 0. {
         return None;
     }
 
     let font = cx.font;
-    let density = cx.look.density;
-    let gap = density.gap();
-    let icon_width = if matches!(&row.icon, RowIcon::None) {
-        0.
-    } else {
-        super::scaled(font, ICON_RESERVE)
-    };
-    let icon_gap = if icon_width > 0. { gap } else { 0. };
-    let status_slot = cx.indicators.width(font);
-    let indent = cx.nest
-        + if matches!(&row.tree, RowTree::None) {
-            0.
-        } else {
-            density.child_indent() + status_slot - super::STATUS_WIDTH
-        };
-    let left = cx.look.content_x() + indent + status_slot + gap + icon_width + icon_gap;
-    let available =
-        (cx.look.content_width(cx.width) - indent - status_slot - gap - icon_width - icon_gap)
-            .max(0.);
-    let text_width = |text: &str| {
-        (UnicodeWidthStr::width(text) as f32 * super::glyph_width(font))
-            .ceil()
-            .max(0.)
-    };
-    let tab_text = summary.map(|summary| fl!("sidebar-tab-count", count = summary.tab_count));
-    let diameter = super::scaled(font, 6.);
-    let attention = summary
-        .and_then(|summary| summary.other_tabs_attention)
-        .filter(|_| available >= diameter + gap * 4.);
-    let attention_width = attention.map(|_| diameter).unwrap_or_default();
-    let labels_room = (available - attention_width - gap * 4.).max(0.);
-    let pane_count = summary.map_or(0, |summary| summary.pane_dots.len());
-    let overflow_width = if pane_count > 1 {
-        (pane_count.ilog10() as f32 + 2.) * super::glyph_width(font)
-    } else {
-        0.
-    };
-    let pane_reserve = if pane_count > 1 {
-        diameter + gap + overflow_width
-    } else if pane_count == 1 {
-        diameter
-    } else {
-        0.
-    };
-    let text_room = (labels_room - pane_reserve).max(0.);
-    let status_width = status_label
-        .map(text_width)
-        .unwrap_or_default()
-        .min(text_room * 0.45);
-    let tab_width = tab_text
-        .as_deref()
-        .map(text_width)
-        .unwrap_or_default()
-        .min((text_room - status_width).max(0.));
-    let pane_room = (labels_room - status_width - tab_width).max(0.);
-    let pane_step = diameter + gap;
-    let (visible_panes, overflow) = summary.map_or((0, 0), |summary| {
-        let count = summary.pane_dots.len();
-        let max_without_overflow = (pane_room / pane_step).floor() as usize;
-        if count <= max_without_overflow {
-            (count, 0)
-        } else {
-            let visible = ((pane_room - overflow_width).max(0.) / pane_step).floor() as usize;
-            let visible = visible.min(count);
-            (visible, count.saturating_sub(visible))
-        }
-    });
-    let line_height = super::line_height(font);
     let theme = cx.theme;
-    let mut line = div()
-        .w_full()
-        .min_w_0()
-        .h(px(line_height))
+    let line_h = super::line_height(font);
+    let small = (font.size * 0.8).round().max(9.);
+    let small_glyph = super::glyph_width(font) * small / font.size;
+    let symbol_size = super::scaled(font, 12.).max(9.);
+    let underline_w = (symbol_size * 0.7).round().max(6.);
+    let underline_bottom = ((line_h - symbol_size) * 0.5 - 2.).max(0.5);
+    let dot_gap = 1.;
+    let group_gap = 4.;
+    let text_width = |text: &str| (UnicodeWidthStr::width(text) as f32 * small_glyph).ceil() + 2.;
+
+    let mut used = 0.;
+    let mut tab_part = None;
+    if show_tabs {
+        let label = summary.tab_count.to_string();
+        let label_width = text_width(&label);
+        let attention = summary.other_tabs_attention;
+        let attention_width = if attention.is_some() {
+            symbol_size + dot_gap
+        } else {
+            0.
+        };
+        let total = label_width + attention_width;
+        if total <= max_width {
+            used += total;
+            tab_part = Some((label, label_width, attention));
+        }
+    }
+
+    let mut dots_part = None;
+    if show_dots {
+        let prefix = if tab_part.is_some() { group_gap } else { 0. };
+        let budget = (max_width - used - prefix).max(0.);
+        let total_panes = summary.pane_dots.len();
+        let all_width =
+            total_panes as f32 * symbol_size + total_panes.saturating_sub(1) as f32 * dot_gap;
+        if total_panes <= MAX_VISIBLE_DOTS && all_width <= budget {
+            used += prefix + all_width;
+            dots_part = Some((total_panes, 0usize, 0.));
+        } else {
+            let max_visible = MAX_VISIBLE_DOTS.min(total_panes.saturating_sub(1));
+            let mut chosen = None;
+            for visible in (0..=max_visible).rev() {
+                let overflow = total_panes - visible;
+                let overflow_text = format!("+{overflow}");
+                let overflow_width = text_width(&overflow_text);
+                let dots_width = if visible > 0 {
+                    visible as f32 * symbol_size + visible as f32 * dot_gap
+                } else {
+                    0.
+                };
+                if dots_width + overflow_width <= budget {
+                    chosen = Some((
+                        visible,
+                        overflow,
+                        overflow_width,
+                        dots_width + overflow_width,
+                    ));
+                    break;
+                }
+            }
+            if let Some((visible, overflow, overflow_width, width)) = chosen {
+                used += prefix + width;
+                dots_part = Some((visible, overflow, overflow_width));
+            }
+        }
+    }
+
+    if tab_part.is_none() && dots_part.is_none() {
+        return None;
+    }
+
+    let strip_selector = format!("pane-strip-{workspace_id}");
+    let mut strip = div()
+        .debug_selector(move || strip_selector)
+        .w(px(used))
+        .h(px(line_h))
+        .flex_none()
         .row()
         .items_center()
-        .gap(px(gap))
-        .ps(px(left))
-        .pe(px(cx.look.content_x()))
+        .justify_end()
         .overflow_hidden();
 
-    if summary.is_some() {
-        let selector = format!("pane-strip-{}", row.workspace.id);
-        line = line.debug_selector(move || selector);
-    }
-    if let (Some(summary), Some(tab_text)) = (summary, tab_text) {
-        let selector = format!("workspace-tab-count-{}", row.workspace.id);
-        line = line.child(
-            div()
-                .debug_selector(move || selector)
-                .w(px(tab_width))
-                .min_w_0()
-                .truncate()
-                .flex_none()
-                .text_color(rgb(theme.muted))
-                .child(tab_text),
-        );
-        if let Some(status) = attention {
-            let selector = format!("other-tabs-attention-{}", row.workspace.id);
-            line = line.child(
+    let has_tabs = tab_part.is_some();
+    if let Some((label, label_width, attention)) = tab_part {
+        let tab_color = match attention {
+            Some(AgentStatus::Blocked) => cx.indicators.color(AgentStatus::Blocked),
+            Some(AgentStatus::Done) => cx.indicators.color(AgentStatus::Done),
+            _ => theme.muted,
+        };
+        let tab_selector = format!("workspace-tab-count-{workspace_id}");
+        let mut group = div()
+            .flex_none()
+            .row()
+            .items_center()
+            .gap(px(dot_gap))
+            .child(
                 div()
-                    .debug_selector(move || selector)
-                    .size(px(super::scaled(font, 6.)))
-                    .rounded_full()
+                    .debug_selector(move || tab_selector)
+                    .w(px(label_width))
                     .flex_none()
-                    .bg(rgb(cx.indicators.color(status))),
+                    .text_size(px(small))
+                    .text_color(rgb(tab_color))
+                    .child(super::label_text(&label)),
+            );
+        if let Some(status) = attention {
+            let attention_selector = format!("other-tabs-attention-{workspace_id}");
+            let (_, path) = pane_symbol_asset(status);
+            group = group.child(
+                div()
+                    .debug_selector(move || attention_selector)
+                    .size(px(symbol_size))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path(path)
+                            .size(px(symbol_size))
+                            .flex_none()
+                            .text_color(rgb(cx.indicators.color(status))),
+                    ),
             );
         }
-        for (index, dot) in summary.pane_dots.iter().take(visible_panes).enumerate() {
-            let selector = format!("pane-dot-{}-{index}", row.workspace.id);
-            let color = dot
-                .status
-                .map_or(theme.muted, |status| cx.indicators.color(status));
-            line = line.child(
-                div()
-                    .debug_selector(move || selector)
-                    .size(px(diameter))
-                    .rounded_full()
-                    .flex_none()
-                    .bg(rgb(color))
-                    .when(dot.winner, |dot| {
-                        dot.border_1().border_color(rgb(theme.foreground))
-                    }),
-            );
+        strip = strip.child(group);
+    }
+
+    if let Some((visible, overflow, overflow_width)) = dots_part {
+        let mut group = div()
+            .flex_none()
+            .row()
+            .items_center()
+            .gap(px(dot_gap))
+            .when(has_tabs, |group| group.ms(px(group_gap)));
+        for (index, dot) in summary.pane_dots.iter().take(visible).enumerate() {
+            let dot_status = dot.status.unwrap_or(AgentStatus::Unknown);
+            let color = cx.indicators.color(dot_status);
+            let (status_name, path) = pane_symbol_asset(dot_status);
+            let dot_selector = format!("pane-dot-{workspace_id}-{index}");
+            let symbol_selector = format!("pane-dot-symbol-{workspace_id}-{index}-{status_name}");
+            let element = div()
+                .debug_selector(move || dot_selector)
+                .relative()
+                .w(px(symbol_size))
+                .h(px(line_h))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .debug_selector(move || symbol_selector)
+                        .path(path)
+                        .size(px(symbol_size))
+                        .flex_none()
+                        .text_color(rgb(color)),
+                )
+                .when(dot.winner, |slot| {
+                    let winner_selector = format!("pane-dot-winner-{workspace_id}-{index}");
+                    slot.child(
+                        div()
+                            .debug_selector(move || winner_selector)
+                            .absolute()
+                            .bottom(px(underline_bottom))
+                            .w(px(underline_w))
+                            .h(px(1.5))
+                            .rounded_full()
+                            .bg(rgb(color)),
+                    )
+                });
+            group = group.child(element);
         }
         if overflow > 0 {
             let text = format!("+{overflow}");
-            let overflow_width = text_width(&text);
-            let selector = format!("pane-overflow-{}", row.workspace.id);
-            line = line.child(
+            let overflow_selector = format!("pane-overflow-{workspace_id}");
+            group = group.child(
                 div()
-                    .debug_selector(move || selector)
+                    .debug_selector(move || overflow_selector)
                     .w(px(overflow_width))
-                    .min_w_0()
-                    .truncate()
                     .flex_none()
+                    .text_size(px(small))
                     .text_color(rgb(theme.muted))
                     .child(super::label_text(&text)),
             );
         }
+        strip = strip.child(group);
     }
 
-    if let Some(text) = status_text {
-        let selector = format!("workspace-status-{}", row.workspace.id);
-        let color = summary
-            .and_then(|summary| summary.winner)
-            .map_or(theme.foreground, |winner| {
-                cx.indicators.color(winner.status)
-            });
-        line = line.child(
-            div()
-                .debug_selector(move || selector)
-                .w(px(status_width))
-                .min_w_0()
-                .flex_none()
-                .truncate()
-                .text_color(rgb(color))
-                .child(text.clone()),
-        );
-    }
-
-    Some(
-        line.relative()
-            .children(layout.trunk_below(row.label, row.tree, cx)),
-    )
+    Some((used, strip))
 }
 
-pub(in crate::sidebar) fn agent_message(
+/// Winning agent name + live status message (or fallback state label), placed
+/// directly inside a workspace row or card.
+pub(in crate::sidebar) fn workspace_status_line(
+    workspace_id: &str,
+    status: &WorkspaceStatus<'_>,
+    width: f32,
+    font_size: f32,
+    line_h: f32,
+    cx: &RowContext<'_>,
+) -> Div {
+    let font = cx.font;
+    let theme = cx.theme;
+    let glyph = super::glyph_width(font) * font_size / font.size;
+    let agent_width = ((UnicodeWidthStr::width(status.agent) as f32 * glyph).ceil() + 2.)
+        .min((width * 0.4).max(0.));
+    let sep_width = (3. * glyph).ceil().min((width - agent_width).max(0.));
+    let message_width = (width - agent_width - sep_width).max(0.);
+    let selector = format!("workspace-status-{workspace_id}");
+    let message_color = if status.is_message {
+        theme.foreground
+    } else {
+        theme.subtext()
+    };
+
+    div()
+        .debug_selector(move || selector)
+        .w(px(width))
+        .h(px(line_h))
+        .flex_none()
+        .row()
+        .items_center()
+        .overflow_hidden()
+        .text_size(px(font_size))
+        .child(
+            div()
+                .w(px(agent_width))
+                .flex_none()
+                .overflow_hidden()
+                .truncate()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(theme.primary()))
+                .child(super::label_text(status.agent)),
+        )
+        .when(sep_width > 0., |line| {
+            line.child(
+                div()
+                    .w(px(sep_width))
+                    .flex_none()
+                    .text_color(rgb(theme.muted))
+                    .child(" · "),
+            )
+        })
+        .when(message_width > 0., |line| {
+            let text: Cow<'_, str> = if status.truncated {
+                Cow::Owned(format!("{}…", status.text))
+            } else {
+                Cow::Borrowed(status.text.as_ref())
+            };
+            line.child(
+                div()
+                    .w(px(message_width))
+                    .flex_none()
+                    .overflow_hidden()
+                    .truncate()
+                    .text_color(rgb(message_color))
+                    .child(super::label_text(&text)),
+            )
+        })
+}
+
+/// Optional inline agent mark + name prefix rendered on line 1 of an agent's
+/// status block (`[icon] agent · <status line 1>`), matching `spaces`.
+pub(in crate::sidebar) struct AgentInlineHeader {
+    pub(in crate::sidebar) show_icon: bool,
+    pub(in crate::sidebar) icon_size: f32,
+    pub(in crate::sidebar) icon_reserve: f32,
+    pub(in crate::sidebar) name_selector: String,
+}
+
+/// Agent status message preview (or localized fallback status on capable hosts),
+/// placed directly inside the agent row or card so it shares its fill and border.
+/// Always occupies [`AGENT_STATUS_LINES`] lines with automatic wrapping and
+/// 2-line clamping so agent rows keep uniform height and long text never clips.
+/// When `header` is `Some`, line 1 begins with `[icon] <agent> · ` just like
+/// `spaces` while line 2 wraps across the full width beneath it.
+pub(in crate::sidebar) fn agent_status_line(
     row: &AgentRow<'_>,
+    header: Option<AgentInlineHeader>,
+    width: f32,
+    font_size: f32,
+    line_h: f32,
     cx: &RowContext<'_>,
     window_cx: Option<&mut Context<SheprdWindow>>,
 ) -> Option<Div> {
-    let message = row.message?;
     let font = cx.font;
-    let gap = cx.look.density.gap();
-    let left = cx.look.content_x()
-        + cx.nest
-        + cx.indicators.width(font)
-        + gap
-        + super::scaled(font, 16.)
-        + gap;
+    let theme = cx.theme;
     let pane_id = row.key.strip_prefix("agent-").unwrap_or(&row.key);
-    let selector = SharedString::from(format!("agent-message-{pane_id}"));
-    let message = div()
-        .id(selector.clone())
-        .debug_selector(move || selector.to_string())
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .truncate()
-        .child(super::label_text(message))
-        .when(row.message_truncated, |line| line.child("…"));
-    let message = match (row.idle_recap, row.recap_target.as_ref(), window_cx) {
-        (true, Some(target), Some(window_cx)) => {
-            let click_target = target.clone();
-            let key_target = target.clone();
-            message
-                .role(Role::Button)
-                .aria_label(fl!("sidebar-agent-recap-open", pane = target.1.clone()))
-                .tab_index(0)
-                .cursor_pointer()
-                .on_click(window_cx.listener(move |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.open_agent_recap(&click_target.0, &click_target.1, window, cx);
-                }))
-                .on_key_down(
-                    window_cx.listener(move |this, event: &KeyDownEvent, window, cx| {
-                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                            cx.stop_propagation();
-                            window.prevent_default();
-                            this.open_agent_recap(&key_target.0, &key_target.1, window, cx);
-                        }
-                    }),
-                )
-        }
-        _ => message,
+    let glyph = super::glyph_width(font) * font_size / font.size;
+    let block_h = line_h * AGENT_STATUS_LINES as f32;
+
+    let (text, text_color, selector, show_recap) = if let Some(message) = row.message {
+        let display: SharedString = if row.message_truncated {
+            SharedString::from(format!("{message}…"))
+        } else {
+            SharedString::from(message.to_owned())
+        };
+        (
+            display,
+            theme.foreground,
+            format!("agent-message-{pane_id}"),
+            row.idle_recap,
+        )
+    } else {
+        let fallback = row.fallback_status.as_ref()?;
+        (
+            fallback.clone(),
+            theme.subtext(),
+            format!("agent-status-fallback-{pane_id}"),
+            false,
+        )
     };
+
+    let (prefix_el, prefix_width) = match header {
+        Some(header) => {
+            let icon_reserve = if header.show_icon {
+                header.icon_reserve.min(width.max(0.))
+            } else {
+                0.
+            };
+            let max_agent_w = ((width - icon_reserve) * 0.4).max(0.);
+            let agent_width =
+                ((UnicodeWidthStr::width(row.name) as f32 * glyph).ceil() + 2.).min(max_agent_w);
+            let sep_width = (3. * glyph)
+                .ceil()
+                .min((width - icon_reserve - agent_width).max(0.));
+            let prefix_w = icon_reserve + agent_width + sep_width;
+            let icon_selector = format!("agent-icon-{}", row.key);
+            let name_selector = header.name_selector;
+            let prefix = div()
+                .absolute()
+                .top_0()
+                .inset_s(px(0.))
+                .w(px(prefix_w))
+                .h(px(line_h))
+                .flex_none()
+                .row()
+                .items_center()
+                .overflow_hidden()
+                .text_size(px(font_size))
+                .line_height(px(line_h))
+                .when(header.show_icon && icon_reserve > 0., |line| {
+                    line.child(
+                        div()
+                            .debug_selector(move || icon_selector)
+                            .w(px(icon_reserve))
+                            .h(px(line_h))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .child(row.icon.element(header.icon_size, theme.primary())),
+                    )
+                })
+                .child(
+                    div()
+                        .debug_selector(move || name_selector)
+                        .w(px(agent_width))
+                        .flex_none()
+                        .overflow_hidden()
+                        .truncate()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(rgb(theme.primary()))
+                        .child(super::label_text(row.name)),
+                )
+                .when(sep_width > 0., |line| {
+                    line.child(
+                        div()
+                            .w(px(sep_width))
+                            .flex_none()
+                            .text_color(rgb(theme.muted))
+                            .child(" · "),
+                    )
+                });
+            (Some(prefix), prefix_w)
+        }
+        None => (None, 0.),
+    };
+
+    let recap_label = show_recap.then(|| fl!("sidebar-agent-recap-available"));
+    let pill_font = (font_size * 0.85).round().max(9.);
+    let pill_glyph = super::glyph_width(font) * pill_font / font.size;
+    let pill_pad = 4.;
+    let pill_gap = 4.;
+    let pill_width = recap_label
+        .as_deref()
+        .map(|label| {
+            (UnicodeWidthStr::width(label) as f32 * pill_glyph).ceil() + pill_pad * 2. + 2.
+        })
+        .unwrap_or(0.);
+    let show_pill = recap_label.is_some() && width >= prefix_width + pill_width + pill_gap;
+    let trailing_reserve = if show_pill { pill_width + pill_gap } else { 0. };
+
+    let recap_pill = recap_label.filter(|_| show_pill).map(|label| {
+        let recap_selector = format!("agent-recap-{}", row.key);
+        let pill = div()
+            .debug_selector(move || recap_selector)
+            .w(px(pill_width))
+            .h(px(line_h))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .px(px(pill_pad))
+            .rounded(px(3.))
+            .bg(rgba((theme.foreground << 8) | 0x12))
+            .text_size(px(pill_font))
+            .text_color(rgb(theme.subtext()))
+            .child(label);
+        let inner = match (row.idle_recap, row.recap_target.as_ref(), window_cx) {
+            (true, Some(target), Some(window_cx)) => {
+                let click_target = target.clone();
+                let key_target = target.clone();
+                let button_id = SharedString::from(format!("agent-recap-hit-{pane_id}"));
+                pill.id(button_id)
+                    .role(Role::Button)
+                    .aria_label(fl!("sidebar-agent-recap-open", pane = target.1.clone()))
+                    .tab_index(0)
+                    .cursor_pointer()
+                    .hover(|style| style.opacity(0.9))
+                    .on_click(window_cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.open_agent_recap(&click_target.0, &click_target.1, window, cx);
+                    }))
+                    .on_key_down(window_cx.listener(
+                        move |this, event: &KeyDownEvent, window, cx| {
+                            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                cx.stop_propagation();
+                                window.prevent_default();
+                                this.open_agent_recap(&key_target.0, &key_target.1, window, cx);
+                            }
+                        },
+                    ))
+                    .into_any_element()
+            }
+            _ => pill.into_any_element(),
+        };
+        div()
+            .absolute()
+            .top_0()
+            .inset_e(px(0.))
+            .flex_none()
+            .child(inner)
+    });
+
     Some(
         div()
-            .w_full()
-            .min_w_0()
-            .h(px(super::line_height(font)))
-            .row()
-            .items_center()
-            .gap(px(gap))
-            .ps(px(left))
-            .pe(px(cx.look.content_x()))
-            .text_color(rgb(cx.theme.foreground))
-            .child(message)
-            .when(row.idle_recap, |line| {
-                line.child(
-                    div()
-                        .debug_selector(|| format!("agent-recap-{}", row.key))
-                        .flex_none()
-                        .text_color(rgb(cx.theme.muted))
-                        .child(fl!("sidebar-agent-recap-available")),
-                )
-            }),
+            .debug_selector(move || selector)
+            .relative()
+            .w(px(width))
+            .h(px(block_h))
+            .flex_none()
+            .overflow_hidden()
+            .child(WrappedStatusText {
+                text,
+                first_line_indent: px(prefix_width),
+                first_line_trailing: px(trailing_reserve),
+                font_size: px(font_size),
+                line_height: px(line_h),
+                color: text_color,
+            })
+            .children(prefix_el)
+            .children(recap_pill),
     )
 }

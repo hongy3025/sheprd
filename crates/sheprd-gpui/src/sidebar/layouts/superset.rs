@@ -7,7 +7,7 @@
 use super::{
     super::{
         agents::{icon_mark, status_style},
-        cell::{AgentRow, RowContext, RowLayout, RowState, WorkspaceRow},
+        cell::{AgentRow, FocusBarTarget, RowContext, RowLayout, RowState, WorkspaceRow},
         line_height,
         row::{
             Elbow, RowIcon, RowKind, RowLift, RowTree, TokenLook, configured_status_style, guide,
@@ -20,6 +20,7 @@ use super::{
 };
 use crate::config::{StatusIcons, Theme};
 use crate::direction::Logical;
+use crate::window::SheprdWindow;
 use gpui::{prelude::*, *};
 use sheprd_client::protocol::AgentStatus;
 
@@ -70,8 +71,17 @@ impl Metrics {
     }
 }
 
-/// The row: padding, the state fill, the stripe, and one measured line.
-fn shell(key: &str, state: RowState, indent: f32, line: Line<'_>, cx: &RowContext<'_>) -> Div {
+/// The row: padding, the state fill, the stripe, and one measured line (plus an
+/// optional secondary status line aligned to the text column).
+fn shell(
+    key: &str,
+    state: RowState,
+    indent: f32,
+    line: Line<'_>,
+    extra: Option<(f32, Div)>,
+    draw_stripe: bool,
+    cx: &RowContext<'_>,
+) -> Div {
     let theme = cx.theme;
     let gap = cx.look.density.gap();
     let row = div()
@@ -79,13 +89,11 @@ fn shell(key: &str, state: RowState, indent: f32, line: Line<'_>, cx: &RowContex
         .relative()
         .w_full()
         .flex_none()
-        .row()
-        .items_center()
         .py(px(gap))
         .ps(px(cx.look.content_x() + indent))
         .cursor_pointer();
     let row = cx.mark.apply(row, key, &cx.look);
-    parts::mark(
+    let row = parts::mark(
         row,
         state,
         (rgb(theme.active), wash(theme.foreground, 0x0d)),
@@ -93,7 +101,7 @@ fn shell(key: &str, state: RowState, indent: f32, line: Line<'_>, cx: &RowContex
     )
     // Flat rows round off while carried, so the card reads as picked up.
     .when(state.lift == RowLift::Lifted, |row| row.rounded(px(4.)))
-    .when(state.selected, |row| {
+    .when(draw_stripe && state.selected, |row| {
         row.child(
             div()
                 .debug_selector(|| format!("highlight-{key}"))
@@ -105,8 +113,16 @@ fn shell(key: &str, state: RowState, indent: f32, line: Line<'_>, cx: &RowContex
                 .rounded_e(px(STRIPE))
                 .bg(rgb(theme.foreground)),
         )
-    })
-    .child(line.into_div())
+    });
+    match extra {
+        Some((offset, extra_line)) => row
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .child(line.into_div())
+            .child(extra_line.ms(px(offset))),
+        None => row.row().items_center().child(line.into_div()),
+    }
 }
 
 /// The icon slot, with the status as a dot pinned to its top right corner in
@@ -232,6 +248,7 @@ fn text_color(state: RowState, theme: &Theme) -> u32 {
 impl RowLayout for Superset {
     fn workspace(&self, row: WorkspaceRow<'_>, state: RowState, cx: &RowContext<'_>) -> Div {
         let (status, upstream) = (row.status(), row.upstream());
+        let workspace_id = row.workspace.id.as_str();
         let WorkspaceRow {
             label,
             tree,
@@ -240,6 +257,9 @@ impl RowLayout for Superset {
             badge,
             removing,
             lines,
+            summary,
+            pane_strip,
+            summary_status,
             ..
         } = row;
         let theme = cx.theme;
@@ -290,7 +310,27 @@ impl RowLayout for Superset {
         } else {
             (theme.muted, theme.muted)
         };
-        let line = Line::new(cx.look.content_width(cx.width) - indent, m.gap).fixed(m.icon, slot);
+        let row_width = cx.look.content_width(cx.width) - indent;
+        let text_offset = m.icon + m.gap;
+        let text_width = (row_width - text_offset).max(0.);
+        let strip_budget = (text_width * 0.42).max(32.).min(text_width);
+        let strip = summary.filter(|_| pane_strip).and_then(|summary| {
+            super::super::row::agent_sidebar::pane_strip(workspace_id, summary, strip_budget, cx)
+        });
+        let extra = summary_status.as_ref().map(|status| {
+            (
+                text_offset,
+                super::super::row::agent_sidebar::workspace_status_line(
+                    workspace_id,
+                    status,
+                    text_width,
+                    m.small,
+                    line_height(cx.font),
+                    cx,
+                ),
+            )
+        });
+        let line = Line::new(row_width, m.gap).fixed(m.icon, slot);
         let line = if lines.is_empty() {
             line.fill(
                 div()
@@ -324,6 +364,9 @@ impl RowLayout for Superset {
             })
         };
         let line = line
+            .when_some(strip, |line, (strip_width, strip)| {
+                line.fixed(strip_width, strip)
+            })
             .when(muted, |line| {
                 line.fixed(dirty_size, parts::muted(label, dirty_size, theme))
             })
@@ -351,28 +394,80 @@ impl RowLayout for Superset {
                 line.fixed(width, fold.element(theme).w(px(width)).text_size(px(size)))
             });
         // The slot is centred in the row, so the tick meets it halfway down.
-        shell(label, state, indent, line, cx).children(guide(
+        let elbow = if extra.is_some() {
+            Elbow::At(cx.look.density.gap() + m.icon / 2.)
+        } else {
+            Elbow::Middle
+        };
+        shell(label, state, indent, line, extra, true, cx).children(guide(
             label,
             tree,
             gutter(cx),
-            Elbow::Middle,
+            elbow,
             cx,
         ))
+    }
+
+    fn focus_bar(&self, target: FocusBarTarget<'_>, cx: &RowContext<'_>) -> Div {
+        super::super::row::agent_sidebar::focus_bar(
+            target.selector(),
+            target.tone(),
+            0.,
+            0.,
+            0.,
+            cx.theme,
+        )
+        .rounded_e(px(3.))
     }
 
     fn trunk_below(&self, key: &str, tree: RowTree, cx: &RowContext<'_>) -> Option<Div> {
         super::super::row::trunk_below(key, tree, gutter(cx), cx)
     }
 
-    fn agent(&self, agent: AgentRow<'_>, state: RowState, cx: &RowContext<'_>) -> Div {
+    fn agent(
+        &self,
+        agent: AgentRow<'_>,
+        state: RowState,
+        cx: &RowContext<'_>,
+        window_cx: Option<&mut Context<SheprdWindow>>,
+    ) -> Div {
         let theme = cx.theme;
         let m = Metrics::new(cx);
         let key = agent.key.as_str();
         let color = text_color(state, theme);
-        let glyph = parts::icon(agent.icon.path(), m.icon * 0.7, color);
+        let name_color = if agent.agent_sidebar {
+            theme.primary()
+        } else {
+            color
+        };
+        let glyph = parts::icon(agent.icon.path(), m.icon * 0.7, name_color);
         let slot_dot = dot(&agent.lines, agent.status, cx);
-        let line = Line::new(cx.look.content_width(cx.width), m.gap)
-            .fixed(m.icon, slot(key, glyph, slot_dot, &m, cx));
+        let row_width = cx.look.content_width(cx.width);
+        let text_offset = m.icon + m.gap;
+        let text_width = (row_width - text_offset).max(0.);
+        let status_font = m.small.max(10.);
+        let place = parts::agent_place(agent.place, cx.host);
+        let inline_agent = agent.lines.is_empty()
+            && agent.agent_sidebar
+            && (place.is_some() || agent.pane.is_some());
+        let inline_header =
+            inline_agent.then(|| super::super::row::agent_sidebar::AgentInlineHeader {
+                show_icon: false,
+                icon_size: 0.,
+                icon_reserve: 0.,
+                name_selector: format!("name-{key}"),
+            });
+        let extra = super::super::row::agent_sidebar::agent_status_line(
+            &agent,
+            inline_header,
+            text_width,
+            status_font,
+            super::super::row::agent_sidebar::compact_line_height(status_font),
+            cx,
+            window_cx,
+        )
+        .map(|line| (text_offset, line));
+        let line = Line::new(row_width, m.gap).fixed(m.icon, slot(key, glyph, slot_dot, &m, cx));
         if !agent.lines.is_empty() {
             let line = line.fill_with(|width| {
                 token_column(
@@ -388,7 +483,33 @@ impl RowLayout for Superset {
                     cx,
                 )
             });
-            return shell(key, state, 0., line, cx);
+            return shell(key, state, 0., line, extra, false, cx);
+        }
+        if inline_agent && extra.is_some() {
+            let line = line
+                .when_some(place, |line, place| {
+                    line.lead(
+                        div()
+                            .debug_selector(|| format!("detail-{key}"))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(rgb(color)),
+                        place,
+                        glyph_at(cx.font, cx.font.size),
+                        0.5,
+                    )
+                })
+                .when_some(agent.pane, |line, pane| {
+                    line.label(
+                        div()
+                            .debug_selector(|| format!("pane-{key}"))
+                            .text_size(px(m.small))
+                            .text_color(rgb(theme.muted)),
+                        pane,
+                        m.glyph,
+                        0.5,
+                    )
+                });
+            return shell(key, state, 0., line, extra, false, cx);
         }
         // The agent's pane, then where it runs, trail its name, each never over
         // half the row.
@@ -396,7 +517,10 @@ impl RowLayout for Superset {
             .lead(
                 div()
                     .debug_selector(|| format!("name-{key}"))
-                    .text_color(rgb(color)),
+                    .when(agent.agent_sidebar, |name| {
+                        name.font_weight(FontWeight::SEMIBOLD)
+                    })
+                    .text_color(rgb(name_color)),
                 agent.name,
                 glyph_at(cx.font, cx.font.size),
                 0.4,
@@ -434,7 +558,7 @@ impl RowLayout for Superset {
                     0.3,
                 )
             });
-        shell(key, state, 0., line, cx)
+        shell(key, state, 0., line, extra, false, cx)
     }
 }
 
