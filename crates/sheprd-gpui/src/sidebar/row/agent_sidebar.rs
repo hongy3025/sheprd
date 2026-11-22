@@ -3,7 +3,7 @@ use super::super::{
     summary::WorkspaceSummary,
 };
 use super::wrapped_status::WrappedStatusText;
-use crate::{direction::Logical, i18n::fl, icons::AgentIcon, window::SheprdWindow};
+use crate::{direction::Logical, icons::AgentIcon, window::SheprdWindow};
 use gpui::{prelude::*, *};
 use sheprd_client::protocol::AgentStatus;
 use std::borrow::Cow;
@@ -436,7 +436,7 @@ pub(in crate::sidebar) fn agent_status_line(
     font_size: f32,
     line_h: f32,
     cx: &RowContext<'_>,
-    window_cx: Option<&mut Context<SheprdWindow>>,
+    _window_cx: Option<&mut Context<SheprdWindow>>,
 ) -> Option<Div> {
     let font = cx.font;
     let theme = cx.theme;
@@ -444,25 +444,19 @@ pub(in crate::sidebar) fn agent_status_line(
     let glyph = super::glyph_width(font) * font_size / font.size;
     let block_h = line_h * AGENT_STATUS_LINES as f32;
 
-    let (text, text_color, selector, show_recap) = if let Some(message) = row.message {
+    let (text, text_color, selector) = if let Some(message) = row.message {
         let display: SharedString = if row.message_truncated {
             SharedString::from(format!("{message}…"))
         } else {
             SharedString::from(message.to_owned())
         };
-        (
-            display,
-            theme.foreground,
-            format!("agent-message-{pane_id}"),
-            row.idle_recap,
-        )
+        (display, theme.foreground, format!("agent-message-{pane_id}"))
     } else {
         let fallback = row.fallback_status.as_ref()?;
         (
             fallback.clone(),
             theme.subtext(),
             format!("agent-status-fallback-{pane_id}"),
-            false,
         )
     };
 
@@ -531,72 +525,6 @@ pub(in crate::sidebar) fn agent_status_line(
         None => (None, 0.),
     };
 
-    let recap_label = show_recap.then(|| fl!("sidebar-agent-recap-available"));
-    let pill_font = (font_size * 0.85).round().max(9.);
-    let pill_glyph = super::glyph_width(font) * pill_font / font.size;
-    let pill_pad = 4.;
-    let pill_gap = 4.;
-    let pill_width = recap_label
-        .as_deref()
-        .map(|label| {
-            (UnicodeWidthStr::width(label) as f32 * pill_glyph).ceil() + pill_pad * 2. + 2.
-        })
-        .unwrap_or(0.);
-    let show_pill = recap_label.is_some() && width >= prefix_width + pill_width + pill_gap;
-    let trailing_reserve = if show_pill { pill_width + pill_gap } else { 0. };
-
-    let recap_pill = recap_label.filter(|_| show_pill).map(|label| {
-        let recap_selector = format!("agent-recap-{}", row.key);
-        let pill = div()
-            .debug_selector(move || recap_selector)
-            .w(px(pill_width))
-            .h(px(line_h))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .px(px(pill_pad))
-            .rounded(px(3.))
-            .bg(rgba((theme.foreground << 8) | 0x12))
-            .text_size(px(pill_font))
-            .text_color(rgb(theme.subtext()))
-            .child(label);
-        let inner = match (row.idle_recap, row.recap_target.as_ref(), window_cx) {
-            (true, Some(target), Some(window_cx)) => {
-                let click_target = target.clone();
-                let key_target = target.clone();
-                let button_id = SharedString::from(format!("agent-recap-hit-{pane_id}"));
-                pill.id(button_id)
-                    .role(Role::Button)
-                    .aria_label(fl!("sidebar-agent-recap-open", pane = target.1.clone()))
-                    .tab_index(0)
-                    .cursor_pointer()
-                    .hover(|style| style.opacity(0.9))
-                    .on_click(window_cx.listener(move |this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.open_agent_recap(&click_target.0, &click_target.1, window, cx);
-                    }))
-                    .on_key_down(window_cx.listener(
-                        move |this, event: &KeyDownEvent, window, cx| {
-                            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                                cx.stop_propagation();
-                                window.prevent_default();
-                                this.open_agent_recap(&key_target.0, &key_target.1, window, cx);
-                            }
-                        },
-                    ))
-                    .into_any_element()
-            }
-            _ => pill.into_any_element(),
-        };
-        div()
-            .absolute()
-            .top_0()
-            .inset_e(px(0.))
-            .flex_none()
-            .child(inner)
-    });
-
     Some(
         div()
             .debug_selector(move || selector)
@@ -608,12 +536,11 @@ pub(in crate::sidebar) fn agent_status_line(
             .child(WrappedStatusText {
                 text,
                 first_line_indent: px(prefix_width),
-                first_line_trailing: px(trailing_reserve),
+                first_line_trailing: px(0.),
                 font_size: px(font_size),
                 line_height: px(line_h),
                 color: text_color,
             })
-            .children(prefix_el)
-            .children(recap_pill),
+            .children(prefix_el),
     )
 }

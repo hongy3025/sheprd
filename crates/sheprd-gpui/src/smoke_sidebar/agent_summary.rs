@@ -127,39 +127,20 @@ pub(super) async fn run(handle: WindowHandle<SheprdWindow>, cx: &mut AsyncApp) -
             .downcast::<SheprdWindow>()
             .map_err(|_| anyhow!("unexpected root"))?;
         let recap_label = crate::i18n::fl!("sidebar-agent-recap-available");
-        let point = cx
+        if cx
             .global::<PaintedProbes>()
             .0
-            .get(&recap_label)
-            .context("missing recap pill target")?
-            .bounds
-            .center();
-        let modifiers = Modifiers::default();
-        for event in [
-            PlatformInput::MouseMove(MouseMoveEvent {
-                position: point,
-                pressed_button: None,
-                modifiers,
-            }),
-            PlatformInput::MouseDown(MouseDownEvent {
-                button: MouseButton::Left,
-                position: point,
-                modifiers,
-                click_count: 1,
-                first_mouse: false,
-            }),
-            PlatformInput::MouseUp(MouseUpEvent {
-                button: MouseButton::Left,
-                position: point,
-                modifiers,
-                click_count: 1,
-            }),
-        ] {
-            window.dispatch_event(event, cx);
+            .contains_key(&recap_label)
+        {
+            bail!("unexpected recap pill rendered in agents sidebar");
         }
-        if view.read(cx).agent_recap.is_none() {
-            bail!("clicking the idle agent message did not open its recap");
+        let opened = view.update(cx, |view, cx| {
+            view.open_agent_recap(crate::endpoint::LOCAL, "w1:p1", window, cx)
+        });
+        if !opened || view.read(cx).agent_recap.is_none() {
+            bail!("open_agent_recap did not open the recap modal");
         }
+        let point = window.bounds().center();
         window.draw(cx).clear(cx);
 
         let before = view.read(cx).input_probe;

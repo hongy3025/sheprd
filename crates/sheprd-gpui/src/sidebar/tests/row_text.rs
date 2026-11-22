@@ -208,8 +208,6 @@ fn cells_hand_their_state_and_data_to_the_layout() {
             agent_sidebar: false,
             message: None,
             message_truncated: false,
-            idle_recap: false,
-            recap_target: None,
             fallback_status: None,
         }),
         &cx,

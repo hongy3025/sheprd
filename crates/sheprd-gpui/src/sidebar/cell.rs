@@ -24,7 +24,6 @@ use gpui::{App, ClickEvent, Context, Div, ElementId, ParentElement, Styled, Wind
 use sheprd_client::protocol::AgentStatus;
 use sheprd_session::Workspace;
 use std::borrow::Cow;
-use std::sync::Arc;
 
 /// Read-only inputs every row of one render shares.
 pub(super) struct RowContext<'a> {
@@ -145,8 +144,6 @@ pub(super) struct AgentRow<'a> {
     /// Bounded preview of the matching pane's last agent message.
     pub(super) message: Option<&'a str>,
     pub(super) message_truncated: bool,
-    pub(super) idle_recap: bool,
-    pub(super) recap_target: Option<Arc<(String, String)>>,
     /// Localized status label shown on the status line when a capable host has
     /// no live message for this pane.
     pub(super) fallback_status: Option<gpui::SharedString>,

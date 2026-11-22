@@ -13,7 +13,6 @@ use crate::{
     },
 };
 use gpui::{prelude::*, *};
-use std::sync::Arc;
 
 impl SheprdWindow {
     /// Appends a row for each agent `panel_agents` lists, in that order, and
@@ -196,10 +195,6 @@ impl SheprdWindow {
                 agent_sidebar,
                 message: preview.map(|(message, _, _)| message),
                 message_truncated: preview.is_some_and(|(_, truncated, _)| truncated),
-                idle_recap: preview.is_some_and(|(_, _, idle_recap)| idle_recap),
-                recap_target: preview
-                    .is_some_and(|(_, _, idle_recap)| idle_recap)
-                    .then(|| Arc::new((endpoint_id.clone(), id.clone()))),
                 fallback_status,
             }),
             row_cx,

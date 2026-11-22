@@ -164,6 +164,9 @@ fn status_text_clicks_do_not_open_recap(cx: &mut gpui::TestAppContext) {
     let (_view, cx) = sidebar_view(cx, true);
     draw_sidebar(cx);
 
+    // Agents rows must not render a trailing [recap] tag pill.
+    assert!(cx.debug_bounds("agent-recap-agent-w1:p1").is_none());
+
     // Status text itself in Spaces and Agents is plain text, not a recap link.
     let ws_status = cx.debug_bounds("workspace-status-w1").unwrap();
     cx.simulate_click(ws_status.center(), Modifiers::default());
@@ -180,10 +183,13 @@ fn status_text_clicks_do_not_open_recap(cx: &mut gpui::TestAppContext) {
 fn recap_click_is_modal_and_does_not_navigate_or_send_input(cx: &mut gpui::TestAppContext) {
     let (view, cx) = sidebar_view(cx, true);
     draw_sidebar(cx);
+    assert!(cx.debug_bounds("agent-recap-agent-w1:p1").is_none());
 
-    // The explicit recap pill still opens the modal without navigating or typing.
-    let pill = cx.debug_bounds("agent-recap-agent-w1:p1").unwrap();
-    cx.simulate_click(pill.center(), Modifiers::default());
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            assert!(view.open_agent_recap(crate::endpoint::LOCAL, "w1:p1", window, cx));
+        });
+    });
     draw_sidebar(cx);
     assert!(cx.debug_bounds("agent-recap").is_some());
 
@@ -208,8 +214,12 @@ fn recap_click_is_modal_and_does_not_navigate_or_send_input(cx: &mut gpui::TestA
 fn an_open_recap_keeps_its_captured_message_after_a_boot_change(cx: &mut gpui::TestAppContext) {
     let (view, cx) = sidebar_view(cx, true);
     draw_sidebar(cx);
-    let pill = cx.debug_bounds("agent-recap-agent-w1:p1").unwrap();
-    cx.simulate_click(pill.center(), Modifiers::default());
+    assert!(cx.debug_bounds("agent-recap-agent-w1:p1").is_none());
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            assert!(view.open_agent_recap(crate::endpoint::LOCAL, "w1:p1", window, cx));
+        });
+    });
     draw_sidebar(cx);
     assert!(cx.debug_bounds("agent-recap").is_some());
 
